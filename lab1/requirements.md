@@ -1,5 +1,6 @@
 # 酒店预订管理系统 需求规格说明
 
+- 仓库地址：https://github.com/ruzhai/software-engineering-labs
 - 版本：1.0（人工审查后）
 - 日期：2026-10-18
 - 依据：2026-10-18 第一轮正式访谈（INT-01）与跟进沟通（INT-02），原话见 `chat.txt`
