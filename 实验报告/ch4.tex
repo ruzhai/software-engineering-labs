@@ -1,0 +1,297 @@
+% ==================== 四、数据库设计 ====================
+\section{数据库设计}
+
+\subsection{设计原则}
+
+数据库设计要回答的不是「有哪些实体」，而是「哪些约束必须由数据库来保证」。有三条约束，如果只写在代码里，那么任何一个绕过服务的入口都会把它们破坏掉，因此它们必须落成表结构上的唯一索引与条件更新：
+
+\begin{enumerate}[leftmargin=3.2em]
+  \item \textbf{同一个请求号只能落一张订单}（REQ-010）。这不是去重逻辑，是唯一索引。
+  \item \textbf{同一房型同一晚的库存不能被卖超}（REQ-011）。这不是判空逻辑，是带条件的 UPDATE。
+  \item \textbf{同一房间同一晚不能被两张订单占用}（REQ-024）。这不是查重逻辑，是唯一索引。
+\end{enumerate}
+
+除这三条外，还有两条通用约定：
+
+\begin{itemize}
+  \item \textbf{金额一律用 \texttt{DECIMAL(10,2)}}，不用浮点。浮点在做「已付金额是否等于应付金额」的比对时会因为舍入误判，而这件事在支付回调里每一笔都要做。
+  \item \textbf{日期与时间分开存}：\texttt{DATE} 存业务日期（入住日、晚次日期），\texttt{DATETIME} 存操作时刻（下单时间、支付时间）。库存的主键只有 \texttt{DATE}，因为「几点扣库存」不影响库存本身。
+\end{itemize}
+
+\subsection{核心表清单}
+
+共 17 张表，其中 12 张核心表承载业务，5 张辅助表承载流转与留痕。
+
+\begin{table}[H]
+\centering
+\caption{表清单与职责}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}p{3.3cm}p{2.4cm}X@{}}
+\toprule
+表名 & 中文名 & 职责与关键约束 \\
+\midrule
+\texttt{user} & 账号 & 四类角色、所属门店或片区、账号状态 \\
+\texttt{store} & 门店 & 营业状态、城市与地段、所属片区 \\
+\texttt{room\_type} & 房型 & 房间总数、最大入住人数、是否上架 \\
+\texttt{room} & 房间 & 房号、楼层、当前状态、预计修复日期 \\
+\texttt{daily\_price} & 日价 & 主键（房型，日期）；价格来源区分人工定价与平台默认 \\
+\texttt{daily\_inventory} & 日库存 & 主键（房型，日期）；上限、线上已售、线下保留、线下已售 \\
+\texttt{orders} & 订单 & 请求号唯一；状态、房间数、总金额、支付截止时间 \\
+\texttt{order\_item} & 订单明细 & 唯一（订单，房型，日期）；单价快照在此 \\
+\texttt{payment} & 支付单 & 支付单号唯一、渠道流水号唯一 \\
+\texttt{refund} & 退款单 & 幂等键唯一，保证重复提交只退一次 \\
+\texttt{room\_occupancy} & 占房记录 & 唯一（房间，日期），保证同一晚不被两单占用 \\
+\texttt{work\_order} & 工单 & 维修与换房型；同一房间未关闭工单唯一 \\
+\midrule
+\texttt{approval} & 审批单 & 改价、取消、超限开单、升级房型四类共表 \\
+\texttt{review} & 评价 & 订单号唯一，一单一评 \\
+\texttt{audit\_log} & 审计日志 & 只增不改，无 UPDATE/DELETE 权限 \\
+\texttt{notice} & 通知记录 & 失败原因、重试次数、下次重试时间 \\
+\texttt{reconciliation} & 对账记录 & 每日差异与处理结果 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{表结构}
+
+\subsubsection{账号与门店}
+
+\begin{table}[H]
+\centering
+\caption{\texttt{user} 账号表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{2.7cm}L{2.9cm}L{2.6cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+user\_id & CHAR(20) & PK & 账号编号 \\
+name & VARCHAR(32) & NOT NULL & 姓名 \\
+phone & VARCHAR(20) & UNIQUE & 手机号即登录名 \\
+pwd\_hash & CHAR(96) & NOT NULL & 加盐哈希，不可还原（REQ-016） \\
+role & TINYINT & NOT NULL & 1 顾客 / 2 前台 / 3 店长 / 4 平台地区负责人 \\
+store\_id & CHAR(20) & FK, NULL & 前台与店长必填；顾客与平台负责人为空 \\
+region\_id & CHAR(20) & FK, NULL & 平台地区负责人必填 \\
+status & TINYINT & NOT NULL & 1 正常 / 2 停用 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\texttt{store} 表字段为 \texttt{store\_id}（PK）、\texttt{name}、\texttt{city}、\texttt{area}（地段）、\texttt{region\_id}（FK）、\texttt{business\_status}（1 营业 / 2 停业）。停业只影响新订单，不影响已有订单（REQ-006）。
+
+\subsubsection{房源}
+
+\begin{table}[H]
+\centering
+\caption{\texttt{room\_type} 房型表与 \texttt{room} 房间表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{2.7cm}L{2.9cm}L{2.6cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{room\_type 房型}} \\
+room\_type\_id & CHAR(20) & PK & 房型编号 \\
+store\_id & CHAR(20) & FK & 所属门店 \\
+name & VARCHAR(32) & NOT NULL & 如「高级大床房」 \\
+bed & VARCHAR(32) & & 床型 \\
+max\_guests & SMALLINT & NOT NULL & 最大入住人数，供 REQ-027 校验 \\
+total\_rooms & SMALLINT & NOT NULL & 房间总数，可售上限公式的起点 \\
+on\_sale & TINYINT & NOT NULL & 1 上架 / 2 下架 \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{room 房间}} \\
+room\_id & CHAR(20) & PK & 房间编号 \\
+room\_type\_id & CHAR(20) & FK & 所属房型 \\
+room\_no & VARCHAR(10) & UNIQUE(门店) & 房号，如 408 \\
+floor & TINYINT & NOT NULL & 楼层；房型与楼层绑定，见 1.5 节 \\
+status & TINYINT & NOT NULL & 六种房态之一 \\
+repair\_until & DATE & NULL & 预计修复日期，为空表示无维修计划 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\texttt{repair\_until} 这一列是 M4 计算可售上限的依据。它放在房间档案上而不是工单上，是为了让库存只依赖 M2 一个模块（见 3.3 节边界约定一）。同一房间重复登记维修只覆盖该列，不重复扣减（REQ-034）。
+
+\subsubsection{价格与库存}
+
+\begin{table}[H]
+\centering
+\caption{\texttt{daily\_price} 日价与 \texttt{daily\_inventory} 日库存}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{3.0cm}L{2.9cm}L{3.4cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{daily\_price 日价}} \\
+room\_type\_id & CHAR(20) & PK(1) & \\
+stay\_date & DATE & PK(2) & 晚次日期 \\
+amount & DECIMAL(10,2) & NOT NULL & 当日房价 \\
+source & TINYINT & NOT NULL & 1 店长设定 / 2 平台默认 / 3 节假日规则 \\
+updated\_by & CHAR(20) & FK & 最近一次改价的操作人 \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{daily\_inventory 日库存}} \\
+room\_type\_id & CHAR(20) & PK(1) & \\
+stay\_date & DATE & PK(2) & 晚次日期 \\
+online\_limit & SMALLINT & NOT NULL & 线上可售上限 \\
+online\_sold & SMALLINT & NOT NULL DEFAULT 0 & 线上已售 \\
+offline\_hold & SMALLINT & NOT NULL DEFAULT 0 & 线下保留额度 \\
+offline\_sold & SMALLINT & NOT NULL DEFAULT 0 & 线下已售 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+两个表的主键都是\textbf{复合主键（房型，日期）}，这一条就决定了整个库存模型的形状：库存不是「这个房型还剩几间」，而是「这个房型在这一晚还剩几间」。一笔 10-31 入住、11-02 离店的订单，占的是 10-31 与 11-01 两晚，11-02 不占（REQ-013）。
+
+线上可售上限由公式维护，不由人直接填：
+
+\[
+\texttt{online\_limit} = \texttt{total\_rooms} - \text{当日维修间数} - \texttt{offline\_hold}
+\]
+
+店长可以在公式值的基础上\textbf{下调}，但不能高于公式值。这个「可下调不可上调」的规则是讨论后定的：只允许公式会失去 REQ-006 里「店长可设置」的灵活性，允许随意设置又会让 REQ-033 的公式失效。
+
+\subsubsection{订单与明细}
+
+\begin{table}[H]
+\centering
+\caption{\texttt{orders} 订单表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{3.0cm}L{3.0cm}L{2.8cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+order\_no & CHAR(22) & PK & 订单号，含日期前缀 \\
+request\_no & CHAR(36) & \textbf{UNIQUE} & 请求号，REQ-010 的幂等键 \\
+customer\_id & CHAR(20) & FK & 下单顾客 \\
+store\_id & CHAR(20) & FK & 所属门店 \\
+status & TINYINT & NOT NULL & 六种订单状态之一 \\
+room\_count & SMALLINT & NOT NULL & 本单总间数，用于列表展示 \\
+total\_amount & DECIMAL(10,2) & NOT NULL & 各明细小计之和 \\
+check\_in & DATE & NOT NULL & 入住日 \\
+check\_out & DATE & NOT NULL & 离店日 \\
+pay\_deadline & DATETIME & NOT NULL & 下单后 15 分钟，超时扫描用 \\
+check\_in\_at & DATETIME & NULL & 实际入住时刻 \\
+created\_at & DATETIME & NOT NULL & 下单时刻 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\texttt{request\_no} 上的唯一索引是「重复提交防护」的第一道也是最后一道防线：应用层即使出现并发重放，第二次插入也会直接撞索引失败，而不是产生第二张订单。
+
+\begin{table}[H]
+\centering
+\caption{\texttt{order\_item} 订单明细表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{3.0cm}L{3.0cm}L{3.2cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+item\_id & CHAR(24) & PK & 明细编号 \\
+order\_no & CHAR(22) & FK & 所属订单 \\
+room\_type\_id & CHAR(20) & 唯一(1) & \\
+stay\_date & DATE & 唯一(2) & 晚次日期 \\
+qty & SMALLINT & NOT NULL & 间数，正整数 \\
+unit\_price & DECIMAL(10,2) & NOT NULL & \textbf{下单时的价格快照} \\
+subtotal & DECIMAL(10,2) & NOT NULL & $=$ 单价 $\times$ 间数 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+唯一约束 \texttt{UNIQUE(order\_no, room\_type\_id, stay\_date)} 对应 REQ-032 的一条边界：同一房型同一日期被重复选择时合并为一条明细并累加间数，而不是插两条。\texttt{unit\_price} 是快照，改价不回写（REQ-023）。
+
+\subsubsection{支付、退款与占房}
+
+\begin{table}[H]
+\centering
+\caption{\texttt{payment} 支付单与 \texttt{refund} 退款单}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{2.9cm}L{2.9cm}L{3.0cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{payment 支付单}} \\
+pay\_no & CHAR(24) & PK & 本系统支付单号 \\
+order\_no & CHAR(22) & FK & 所属订单 \\
+amount & DECIMAL(10,2) & NOT NULL & 支付金额 \\
+channel & TINYINT & NOT NULL & 微信 / 支付宝 / 银行卡 \\
+txn\_no & VARCHAR(64) & \textbf{UNIQUE} & 支付平台流水号，回调判重用 \\
+status & TINYINT & NOT NULL & 待支付 / 成功 / 失败 / 已退款 \\
+paid\_at & DATETIME & NULL & 支付时刻 \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{refund 退款单}} \\
+refund\_no & CHAR(24) & PK & 退款单号 \\
+pay\_no & CHAR(24) & FK & 原支付单，原路退回 \\
+amount & DECIMAL(10,2) & NOT NULL & 退款金额 \\
+idem\_key & CHAR(64) & \textbf{UNIQUE} & 幂等键：订单号 + 取消动作序号 \\
+reason & VARCHAR(64) & & 取消原因 \\
+status & TINYINT & NOT NULL & 处理中 / 成功 / 失败 \\
+refunded\_at & DATETIME & NULL & 退款完成时刻 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\texttt{refund.idem\_key} 是 REQ-009「重复提交取消只产生一次退款」的落点。注意它\textbf{不能}直接用订单号——同一张订单可能先改期产生一次差额退款、再取消产生一次全额退款，用订单号会导致第二次退款被唯一索引挡掉。因此幂等键由「订单号 + 该单第几次退款动作」组成。
+
+\begin{table}[H]
+\centering
+\caption{\texttt{room\_occupancy} 占房记录表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{2.9cm}L{2.9cm}L{3.4cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+occ\_id & CHAR(24) & PK & 记录编号 \\
+order\_no & CHAR(22) & FK & 占用它的订单 \\
+room\_id & CHAR(20) & 唯一(1) & \\
+stay\_date & DATE & 唯一(2) & 晚次日期 \\
+assigned\_by & CHAR(20) & FK & 排房操作人 \\
+assigned\_at & DATETIME & NOT NULL & 排房时刻 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+这张表的粒度是\textbf{「房间 $\times$ 晚」一行}，而不是「一个订单一段日期」。这么设计是为了让唯一索引 \texttt{UNIQUE(room\_id, stay\_date)} 直接表达「同一房间同一晚不得被两单占用」。如果按日期段存，这个约束就只能靠应用层区间重叠判断，并发排房时必然出漏洞。
+
+占房记录只在\textbf{排房}时写入，下单时不写——因为下单时顾客并不知道住哪间（REQ-024）。
+
+\subsubsection{工单与辅助表}
+
+\texttt{work\_order} 工单表字段：\texttt{wo\_id}（PK）、\texttt{room\_id}（FK）、\texttt{type}（1 维修 / 2 换房型）、\texttt{reason}、\texttt{affect\_date}（涉及日期）、\texttt{status}（待执行 / 已执行 / 已拒绝 / 已关闭）、\texttt{submitter\_id}、\texttt{executor\_id}、\texttt{created\_at}。约束：同一房间在 \texttt{status IN (待执行)} 时唯一，防止重复提交（REQ-025）。
+
+5 张辅助表的要点：
+
+\begin{table}[H]
+\centering
+\caption{辅助表要点}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}p{3.0cm}X@{}}
+\toprule
+表 & 要点 \\
+\midrule
+\texttt{approval} & 四类审批共表，字段 \texttt{type} 区分改价 / 取消 / 超限开单 / 升级房型；流水号唯一，防止同一申请重复入审批 \\[2pt]
+\texttt{review} & \texttt{order\_no} 唯一，保证一单一评；评分 \texttt{CHECK (score BETWEEN 1 AND 5)} \\[2pt]
+\texttt{audit\_log} & 只增不改；数据库账号对该表只授予 INSERT 与 SELECT，不授予 UPDATE、DELETE \\[2pt]
+\texttt{notice} & 记录渠道、状态、失败原因、重试次数、下次重试时间；与订单事务无关，写入失败不影响下单 \\[2pt]
+\texttt{reconciliation} & 每日一条对账任务记录，差异单笔落行，\texttt{handle\_result} 记录补单 / 退款 / 转人工 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{三条硬约束如何落在表上}
+
+\begin{table}[H]
+\centering
+\caption{需求约束与数据库实现的对应}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}p{3.4cm}p{3.6cm}X@{}}
+\toprule
+需求约束 & 数据库手段 & 为什么不能只写在代码里 \\
+\midrule
+同一请求号只落一单（REQ-010） & \texttt{orders.request\_no} UNIQUE & 并发重放时两次插入同时通过应用层判重，只有唯一索引能拦住第二次 \\
+同一晚不超卖（REQ-011） & \texttt{UPDATE ... WHERE sold + n <= online\_limit} & 先查再改之间必然有间隙，100 并发下必然多卖 \\
+同一房间同一晚不被两单占用（REQ-024） & \texttt{room\_occupancy} 唯一（房间，日期） & 两笔排房同时通过「房间是否空闲」检查，只有唯一索引能拦住第二笔 \\
+重复取消只退一次（REQ-009） & \texttt{refund.idem\_key} UNIQUE & 退款动作可能来自顾客自助、前台代提、审批通过三个入口 \\
+一单一评（REQ-003） & \texttt{review.order\_no} UNIQUE & 同一订单的两次评价可能来自两个终端 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+这五条的共同逻辑是：\textbf{凡是「不能发生第二次」的事情，都用唯一索引表达；凡是「不能超过某个量」的事情，都用条件更新表达}。前者让数据库替你判重，后者让数据库替你判量，两者都不需要应用层再加锁。

@@ -1,0 +1,37 @@
+@startuml UML状态图_房间
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam linetype ortho
+skinparam ArrowColor #4A5568
+skinparam ArrowFontColor #4A5568
+skinparam ArrowFontSize 11
+skinparam state {
+  BackgroundColor #F7FAFC
+  BorderColor #4A5568
+  FontColor #2D3748
+  FontSize 13
+  BorderThickness 1.1
+}
+skinparam nodesep 200
+skinparam ranksep 70
+skinparam dpi 250
+
+state "空闲" as R0
+state "已预定" as R1
+state "已入住" as R2
+state "已退房" as R3
+state "需打扫" as R4
+state "维修中" as R5
+
+[*] -down-> R0
+R0 -right-> R1 : 排房
+R1 -down-> R2 : 办理入住
+R2 -down-> R3 : 办理退房
+R3 -down-> R4 : 生成打扫任务
+R4 -up-> R0 : 打扫完成
+R0 -right-> R5 : 登记维修
+R4 -up-> R5 : 登记维修
+R5 -left-> R0 : 修复完成
+R1 -left-> R0 : 订单取消
+@enduml

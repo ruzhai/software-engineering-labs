@@ -1,0 +1,47 @@
+@startuml UML用例图_店长端
+skinparam dpi 250
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam linetype ortho
+skinparam ArrowColor #4A5568
+skinparam ArrowFontColor #4A5568
+skinparam ArrowFontSize 11
+skinparam UsecaseBackgroundColor #F7FAFC
+skinparam UsecaseBorderColor #4A5568
+skinparam UsecaseFontColor #2D3748
+skinparam UsecaseFontSize 12
+skinparam ActorBackgroundColor #FFFFFF
+skinparam ActorBorderColor #4A5568
+skinparam ActorFontColor #2D3748
+skinparam ActorFontSize 13
+skinparam RectangleBackgroundColor #FFFFFF
+skinparam RectangleBorderColor #A0AEC0
+skinparam RectangleFontColor #2D3748
+skinparam RectangleFontSize 13
+skinparam nodesep 45
+skinparam ranksep 55
+left to right direction
+
+actor "店长" as S
+
+rectangle "酒店预订系统" {
+  usecase "设置日价与库存" as UC1
+  usecase "提交改价申请" as UC2
+  usecase "审批取消申请" as UC3
+  usecase "审批升级房型申请" as UC4
+  usecase "下发维修工单" as UC5
+  usecase "排班管理" as UC6
+  usecase "查看门店评价与绩效" as UC7
+}
+
+S --> UC1
+S --> UC2
+S --> UC3
+S --> UC4
+S --> UC5
+S --> UC6
+S --> UC7
+
+UC1 <.. UC2 : <<extend>>
+@enduml

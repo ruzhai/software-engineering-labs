@@ -1,0 +1,63 @@
+@startuml UML部署图
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam dpi 250
+skinparam ArrowColor #4A5568
+skinparam ArrowFontColor #4A5568
+skinparam ArrowFontSize 11
+skinparam node {
+  BackgroundColor #EDF2F7
+  BorderColor #4A5568
+  FontColor #2D3748
+  FontSize 13
+}
+skinparam artifact {
+  BackgroundColor #FFFFFF
+  BorderColor #4A5568
+  FontColor #2D3748
+  FontSize 12
+}
+skinparam database {
+  BackgroundColor #F7FAFC
+  BorderColor #4A5568
+  FontColor #2D3748
+  FontSize 12
+}
+skinparam cloud {
+  BackgroundColor #FFFBEA
+  BorderColor #B7791F
+  FontColor #744210
+  FontSize 12
+}
+
+node "用户浏览器\n顾客端 H5 · 前台 · 店长 · 平台" as CLIENT
+node "应用服务器" as APPSRV {
+  artifact "Nginx\nTLS 终止 · 限流" as NGX
+  artifact "应用服务\nAPI 网关 + M1–M10" as APP
+  artifact "调度器\n超时释放 / 日终释放 / 对账" as SCH
+}
+node "缓存进程（与应用服务同机）" as CACHE {
+  database "Redis\n价格锁 · 限流计数" as RDS
+}
+node "数据库服务器" as DBSRV {
+  database "MySQL" as DB
+}
+cloud "第三方支付网关" as PAY
+cloud "短信 / 推送" as SMS
+
+CLIENT --> NGX : HTTPS
+NGX --> APP : HTTP（内网）
+APP --> DB : JDBC 读写
+APP --> RDS : SETNX 价格锁
+SCH --> APP : 触发定时任务
+APP --> PAY : HTTPS 退款
+APP --> SMS : 发送通知
+
+legend bottom left
+  TLS 终止在 Nginx，其后的应用与数据库之间为内网明文（REQ-016）
+  应用进程无状态：会话与价格锁都在 Redis，加机器即可扩展（REQ-017）
+  全部写操作只落这一台 MySQL，库存的条件更新在此串行——100 并发抢房成功数为 1 的前提（REQ-015）
+  每日全量备份 + binlog 留存，支撑故障后 2 小时内恢复（REQ-017）
+end legend
+@enduml

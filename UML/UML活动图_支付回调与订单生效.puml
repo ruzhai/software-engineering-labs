@@ -1,0 +1,52 @@
+@startuml UML活动图_支付回调与订单生效
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam dpi 250
+skinparam ArrowColor #4A5568
+skinparam ArrowFontColor #4A5568
+skinparam ArrowFontSize 11
+skinparam activity {
+  BackgroundColor #F7FAFC
+  BorderColor #4A5568
+  FontColor #2D3748
+  FontSize 13
+  BorderThickness 1.1
+  DiamondBackgroundColor #FFFFFF
+  DiamondBorderColor #4A5568
+  DiamondFontColor #2D3748
+}
+
+start
+:支付平台回调通知;
+
+if (验签通过？) then (否)
+  :丢弃并告警;
+  stop
+else (是)
+endif
+
+if (pay_no 已落过支付记录？) then (是)
+  :返回成功（幂等重放，不重复处理）;
+  stop
+else (否)
+endif
+
+:条件更新订单（待支付 → 已确认）;
+
+if (条件更新影响 1 行？) then (否)
+  :已被超时任务取消，发起原路退款;
+  stop
+else (是)
+endif
+
+:落支付记录（pay_no 唯一索引）;
+:通知顾客「预订成功」;
+stop
+
+legend bottom left
+  先验签再判重：验签是技术性拒绝，判重是幂等重放，两件事分开走
+  超时任务与回调改的是同一行，且都带「状态 = 待支付」条件，先改成的生效，另一方影响 0 行（REQ-020）
+  订单已取消时不再强行恢复，改为原路退款——库存可能已被别人买走（REQ-028）
+end legend
+@enduml

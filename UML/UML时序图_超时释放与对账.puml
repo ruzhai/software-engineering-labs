@@ -1,0 +1,87 @@
+@startuml UML时序图_超时释放与对账
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam dpi 250
+skinparam ParticipantPadding 70
+skinparam sequenceArrowColor #4A5568
+skinparam sequenceArrowThickness 1.2
+skinparam sequenceLifeLineBorderColor #A0AEC0
+skinparam sequenceGroupBorderColor #4A5568
+skinparam sequenceGroupHeaderFontColor #2D3748
+skinparam sequenceGroupBodyBackgroundColor #F7FAFC
+skinparam participantBorderColor #4A5568
+skinparam participantBackgroundColor #F7FAFC
+skinparam participantFontColor #2D3748
+skinparam actorBorderColor #4A5568
+skinparam actorBackgroundColor #FFFFFF
+skinparam actorFontColor #2D3748
+skinparam noteBackgroundColor #FFFBEA
+skinparam noteBorderColor #B7791F
+skinparam noteFontColor #744210
+skinparam sequenceDividerBackgroundColor #EDF2F7
+skinparam sequenceDividerBorderColor #4A5568
+skinparam sequenceDividerFontColor #2D3748
+autonumber
+
+participant "调度器" as SCH
+participant "M5\n预订与订单" as M5
+participant "M4\n库存" as M4
+participant "M6\n支付与退款" as M6
+database "MySQL" as DB
+
+== ① 支付超时释放：每分钟扫一次（REQ-020） ==
+SCH -> M5 : 触发超时扫描
+M5 -> DB : SELECT 超时待支付订单
+DB --> M5 : 超时订单列表
+
+loop 每一张超时订单
+  M5 -> DB : UPDATE 置已取消 WHERE 状态 = 待支付
+  alt 影响 1 行
+    M5 -> M4 : 释放该单占用的晚次
+    M4 -> DB : sold = sold - n WHERE 房型 + 晚次
+    M5 -> DB : 提交事务
+    M5 -> M5 : 顾客收到取消提示
+  else 影响 0 行
+    M5 -> M5 : 已被回调置为已确认，跳过
+    M5 -> DB : 回滚事务
+  end
+end
+
+note over M5, DB
+  置取消与退库存在同一个事务里：
+  状态已变的单影响 0 行，天然不会重复释放；
+  也不会出现「订单取消了、库存没回来」
+end note
+
+== ② 对账补单：每日跑一次（REQ-028） ==
+SCH -> M6 : 触发每日对账
+M6 -> DB : SELECT 已扣款但无订单的支付
+DB --> M6 : 差异单列表
+
+loop 每一笔差异
+  M6 -> M5 : 补建订单（附原支付单号）
+  M5 -> DB : INSERT 订单，pay_no 唯一约束
+  M5 -> M4 : 占用库存（按晚次逐个）
+  M4 -> DB : 条件更新 sold + n <= 上限
+  alt 影响 1 行
+    M5 --> M6 : 补单成功
+    M6 -> DB : 差异标记已处理
+  else 影响 0 行（库存已满）
+    M5 -> DB : 回滚订单
+    M5 --> M6 : 补单失败：库存不足
+    M6 -> M6 : 调支付平台退款接口
+    alt 退款受理
+      M6 -> DB : 落退款单，差异标记已处理
+    else 退款失败或超时无应答
+      M6 -> DB : 进人工处理队列并告警
+    end
+  end
+end
+
+legend bottom left
+  三个「必然」：重复跑超时任务只释放一次；同一笔支付只补一单；每笔差异都有处理结果
+  补单失败不许留白——库存不够就退款，退款不成进人工队列，不停在「已扣款无订单」（REQ-028）
+  退款经支付平台原路退回，渠道返回失败或超时无应答都按退款失败处理
+end legend
+@enduml
