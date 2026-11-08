@@ -225,6 +225,7 @@ created\_by & CHAR(20) & FK & 下发该区间的平台地区负责人 \\
 \midrule
 order\_no & CHAR(22) & PK & 订单号，含日期前缀 \\
 request\_no & CHAR(36) & \textbf{UNIQUE} & 请求号，REQ-010 的幂等键 \\
+pay\_no & CHAR(32) & NULL, \textbf{UNIQUE} & 支付单号；对账补单时回填，保证同一笔支付只补一单 \\
 customer\_id & CHAR(20) & FK & 下单顾客 \\
 store\_id & CHAR(20) & FK & 所属门店 \\
 status & TINYINT & NOT NULL & 六种订单状态之一 \\
@@ -333,7 +334,7 @@ assigned\_at & DATETIME & NOT NULL & 排房时刻 \\
 \midrule
 \texttt{approval} & 三类审批共表，字段 \texttt{type} 区分改价 / 取消 / 升级房型；流水号唯一，防止同一申请重复入审批 \\[2pt]
 \texttt{review} & \texttt{order\_no} 唯一，保证一单一评；评分 \texttt{CHECK (score BETWEEN 1 AND 5)} \\[2pt]
-\texttt{audit\_log} & 只增不改；数据库账号对该表只授予 INSERT 与 SELECT，不授予 UPDATE、DELETE \\[2pt]
+\texttt{audit\_log} & 记录操作人、角色快照、原因、来源 IP 与设备、动作、对象、变更前后值与时间；只增不改，数据库账号对该表只授予 INSERT 与 SELECT（REQ-014） \\[2pt]
 \texttt{notice} & 记录渠道、状态、失败原因、重试次数、下次重试时间；与订单事务无关，写入失败不影响下单 \\[2pt]
 \texttt{reconciliation} & 每日一条对账任务记录，差异单笔落行，\texttt{handle\_result} 记录补单 / 退款 / 转人工 \\[2pt]
 \texttt{delete\_request} & \texttt{request\_id}（PK）、\texttt{target\_type} 与 \texttt{target\_id} 指明待删数据、\texttt{reason}、\texttt{requester\_id}、\texttt{approver\_id}、\texttt{status}（待审批 / 已批准 / 已驳回）；同一对象未结案时唯一，批准后由 M9 执行删除并留审计（REQ-030） \\[2pt]
