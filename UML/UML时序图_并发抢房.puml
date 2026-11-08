@@ -28,7 +28,6 @@ actor "顾客 B" as UB
 participant "API 网关" as GW
 participant "M5\n预订与订单" as M5
 participant "M4\n库存" as M4
-participant "M6\n支付与退款" as M6
 database "MySQL" as DB
 
 par 同一房型、同一晚，仅剩 1 间，两单并发到达
@@ -41,25 +40,23 @@ GW -> GW : 幂等键校验：RA、RB 均首次
 
 == ① 顾客 A 的请求先进入 M5 ==
 GW -> M5 : 受理 RA
-M5 -> M5 : 落单 RA（待支付）
 M5 -> M4 : 扣减库存
 M4 -> DB : 条件更新 RA
 DB --> M4 : 影响 1 行
 M4 --> M5 : 扣减成功
-M5 -> M6 : 创建支付单
+M5 -> M5 : 落单 RA（待支付，与扣减同事务提交）
 M5 --> GW : 订单 RA 已创建
-GW --> UA : 进入支付
+GW --> UA : 返回订单，等待「去支付」
 
 == ② 行锁释放后，顾客 B 的请求继续 ==
 GW -> M5 : 受理 RB
-M5 -> M5 : 落单 RB（待支付）
 M5 -> M4 : 扣减库存（同一晚次）
 M4 -> DB : 条件更新 RB
 DB --> M4 : 影响 0 行
 M4 --> M5 : 库存不足
-M5 -> M5 : 回滚 RB，不落单
+M5 -> M5 : 整单回滚，不落单
 M5 --> GW : 已售罄
-GW --> UB : 未产生支付请求
+GW --> UB : 未产生订单
 
 note over M4, DB
   UPDATE inventory SET sold = sold + 1
@@ -70,6 +67,7 @@ end note
 
 legend bottom left
   幂等键（REQ-010）：同一 X-Request-Id 只落一单，重放请求直接返回"订单已提交"
+  支付单不在下单时创建：顾客点击「去支付」后由 M5 调 M6 创建（见决策四）
   库存只信 MySQL 条件更新，Redis 不承担计数（避免双写）
   两个请求并非真的同时更新——MySQL 行锁让它们串行，先拿到锁的那条影响 1 行
 end legend

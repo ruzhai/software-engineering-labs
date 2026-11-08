@@ -88,25 +88,22 @@ REQ-036 & 账号注册与登录 & —— & —— & 待确认，不覆盖 \\
 \noindent\hspace*{4em}UML时序图\_并发抢房.png\qquad UML时序图\_改价互斥.png\par
 \noindent\hspace*{4em}UML时序图\_支付回调.png\qquad UML时序图\_超时释放与对账.png\par
 \noindent\hspace*{2em}UI界面/\par
-\noindent\hspace*{4em}01\_home\_search.png\qquad 02\_search\_result.png\par
-\noindent\hspace*{4em}03\_hotel\_detail.png\qquad 04\_order\_confirm.png\par
-\noindent\hspace*{4em}05\_payment.png\qquad 06\_my\_orders.png\par
-\noindent\hspace*{4em}07\_review\_submit.png\qquad 08\_room\_board.png\par
-\noindent\hspace*{4em}09\_checkin.png\qquad 10\_housekeeping.png\par
-\noindent\hspace*{4em}11\_walkin\_order.png\qquad 12\_price\_calendar.png\par
-\noindent\hspace*{4em}13\_approval\_center.png\qquad 14\_roster\_review.png\par
-\noindent\hspace*{4em}15\_region\_overview.png\qquad 16\_price\_range\_staffing.png\par
-\noindent\hspace*{4em}17\_message\_center.png\qquad 18\_audit\_log.png\par
+\noindent\hspace*{4em}01\_home\_search.png\qquad 02\_search\_result.png\qquad 03\_hotel\_detail.png\par
+\noindent\hspace*{4em}04\_order\_confirm.png\qquad 05\_payment.png\qquad 06\_my\_orders.png\par
+\noindent\hspace*{4em}07\_review\_submit.png\qquad 08\_room\_board.png\qquad 09\_checkin.png\par
+\noindent\hspace*{4em}10\_housekeeping.png\qquad 11\_walkin\_order.png\qquad 12\_price\_calendar.png\par
+\noindent\hspace*{4em}13\_approval\_center.png\qquad 14\_roster\_review.png\qquad 15\_region\_overview.png\par
+\noindent\hspace*{4em}16\_price\_range\_staffing.png\qquad 17\_message\_center.png\qquad 18\_audit\_log.png\par
 \noindent\hspace*{4em}19\_store\_staff.png\par
 }
 
 \section{图的绘制方式}
 
-全部 16 张 UML 图由 PlantUML 绘制，源文件（\texttt{.puml}）与导出图（\texttt{.png}）同名放在 \texttt{UML/} 下，可用以下命令重新生成：
+16 张 UML 图均由 PlantUML 绘制，源文件与导出图同名存放在 \texttt{UML/} 下，重新生成方式如下：
 
 \begin{quote}
 \zihao{5}\ttfamily
 java -jar plantuml.jar -charset UTF-8 -tpng UML/*.puml
 \end{quote}
 
-统一的绘图约定：白底、深灰线、单一强调色；中文字体统一为 Microsoft YaHei；结构图与行为图宽度按内容自适应，时序图与活动图固定较窄的画幅以便插入正文。19 屏界面用 HTML 与 CSS 生成初稿、导入 Pixso 人工调整后，按 2 倍像素密度导出 PNG（顾客端 780 $\times$ 1688，后台 2944 $\times$ 1864，其中含 16\,px 的圆角外框留白），因此插入报告后文字仍可辨认；产出流程见第 6 章开头。
+绘图约定为白底、深灰线、单一强调色，中文字体统一为 Microsoft YaHei。19 屏界面由 HTML/CSS 生成初稿、经 Pixso 调整后按 2 倍像素密度导出，流程见第 6 章开头。

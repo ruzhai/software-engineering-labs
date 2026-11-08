@@ -20,7 +20,7 @@
 
 \subsection{核心表清单}
 
-共 17 张表，其中 12 张核心表承载业务，5 张辅助表承载流转与留痕。
+共 20 张表：12 张核心表承载业务，5 张辅助表承载流转与留痕，3 张组织与配置表承载片区、排班与平台价格区间。
 
 \begin{table}[H]
 \centering
@@ -48,12 +48,32 @@
 \texttt{audit\_log} & 审计日志 & 只增不改，无 UPDATE/DELETE 权限 \\
 \texttt{notice} & 通知记录 & 失败原因、重试次数、下次重试时间 \\
 \texttt{reconciliation} & 对账记录 & 每日差异与处理结果 \\
+\midrule
+\texttt{region} & 片区 & 片区编号与名称；门店的上级组织 \\
+\texttt{schedule} & 排班 & 唯一（员工，日期，班次）；同时引用门店与员工 \\
+\texttt{price\_range} & 价格区间 & 平台按门店下发的价格上下限与生效日期 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 \subsection{表结构}
 
-\subsubsection{账号与门店}
+\subsubsection{账号、门店与组织}
+
+\begin{table}[H]
+\centering
+\caption{\texttt{region} 片区表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{2.7cm}L{2.9cm}L{2.6cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+region\_id & CHAR(20) & PK & 片区编号 \\
+name & VARCHAR(32) & UNIQUE & 片区名称 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+片区是平台地区负责人的数据范围单位：\texttt{user.region\_id} 与 \texttt{store.region\_id} 都指向本表，负责人只看到本片区内的门店、员工与绩效（REQ-007、REQ-026）。
 
 \begin{table}[H]
 \centering
@@ -77,6 +97,27 @@ status & TINYINT & NOT NULL & 1 正常 / 2 停用 \\
 
 \texttt{store} 表字段为 \texttt{store\_id}（PK）、\texttt{name}、\texttt{city}、\texttt{area}（地段）、\texttt{region\_id}（FK）、\texttt{business\_status}（1 营业 / 2 停业）。停业只影响新订单，不影响已有订单（REQ-006）。
 
+\begin{table}[H]
+\centering
+\caption{\texttt{schedule} 排班表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{2.7cm}L{2.9cm}L{2.6cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+schedule\_id & CHAR(20) & PK & 排班编号 \\
+user\_id & CHAR(20) & FK & 前台账号 \\
+store\_id & CHAR(20) & FK & 所属门店，须与 \texttt{user.store\_id} 一致 \\
+work\_date & DATE & NOT NULL & 班次日期 \\
+shift & TINYINT & NOT NULL & 1 早班 / 2 中班 / 3 晚班 \\
+check\_in\_at & DATETIME & NULL & 打卡上班时间 \\
+check\_out\_at & DATETIME & NULL & 打卡下班时间 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+排班以「员工、日期、班次」唯一，同一前台在同一天的不同班次可以各有一条记录。打卡时间记在同一条记录上而不另建表：打卡只对已排的班次有意义，分离后反而需要额外校验两者对应关系（REQ-006、REQ-026）。
+
 \subsubsection{房源}
 
 \begin{table}[H]
@@ -98,14 +139,17 @@ on\_sale & TINYINT & NOT NULL & 1 上架 / 2 下架 \\
 \midrule
 \multicolumn{4}{@{}l}{\textbf{room 房间}} \\
 room\_id & CHAR(20) & PK & 房间编号 \\
+store\_id & CHAR(20) & FK & 所属门店，须与房型的所属门店一致 \\
 room\_type\_id & CHAR(20) & FK & 所属房型 \\
-room\_no & VARCHAR(10) & UNIQUE(门店) & 房号，如 408 \\
+room\_no & VARCHAR(10) & 复合唯一 & 房号，如 408；唯一索引为（store\_id, room\_no） \\
 floor & TINYINT & NOT NULL & 楼层；房型与楼层绑定，见 1.5 节 \\
 status & TINYINT & NOT NULL & 六种房态之一 \\
 repair\_until & DATE & NULL & 预计修复日期，为空表示无维修计划 \\
 \bottomrule
 \end{tabularx}
 \end{table}
+
+\texttt{room} 表冗余保存 \texttt{store\_id}，是为了让「同一门店房号唯一、不同门店可重号」能由唯一索引直接保证；若只保留 \texttt{room\_type\_id}，唯一约束就要跨表引用房型的所属门店，数据库无法建立这样的索引。写入房间时校验 \texttt{store\_id} 与房型一致。
 
 \texttt{repair\_until} 这一列是 M4 计算可售上限的依据。它放在房间档案上而不是工单上，是为了让库存只依赖 M2 一个模块（见 3.3 节边界约定一）。同一房间重复登记维修只覆盖该列，不重复扣减（REQ-034）。
 
@@ -146,6 +190,26 @@ offline\_sold & SMALLINT & NOT NULL DEFAULT 0 & 线下已售 \\
 \]
 
 店长可手动下调线上可售上限，但不得高于公式值；这一设置保留了 REQ-006 的调整入口，同时满足 REQ-033 的上限约束。
+
+\begin{table}[H]
+\centering
+\caption{\texttt{price\_range} 价格区间表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{2.7cm}L{2.9cm}L{2.6cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+range\_id & CHAR(20) & PK & 区间编号 \\
+store\_id & CHAR(20) & FK & 接收该区间的门店 \\
+effective\_date & DATE & NOT NULL & 生效日期 \\
+min\_price & DECIMAL(10,2) & NOT NULL & 当日价格下限 \\
+max\_price & DECIMAL(10,2) & NOT NULL & 当日价格上限 \\
+created\_by & CHAR(20) & FK & 下发该区间的平台地区负责人 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+价格区间按「门店、生效日期」生效，同一天有多个区间时取最新一条；店长设定日价时校验其落在区间内。区间下调后已超出的当日价格不自动改价，只提示店长调整（REQ-007）。区间本身不参与下单链路，只在下单取价时用于校验，因此与日价分开存表。
 
 \subsubsection{订单与明细}
 
