@@ -33,8 +33,9 @@ rectangle "酒店预订系统" {
   usecase "线下开单" as UC5
   usecase "扣减线下保留额度" as UC6
   usecase "维护房态" as UC7
-  usecase "发起维修工单" as UC8
+  usecase "执行维修工单" as UC8
   usecase "代客取消订单" as UC9
+  usecase "提交改价申请" as UC10
 }
 
 F --> UC1
@@ -43,6 +44,7 @@ F --> UC4
 F --> UC5
 F --> UC7
 F --> UC9
+F --> UC10
 
 UC2 ..> UC3 : <<include>>
 UC5 ..> UC6 : <<include>>

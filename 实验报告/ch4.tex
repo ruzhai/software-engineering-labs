@@ -20,7 +20,7 @@
 
 \subsection{核心表清单}
 
-共 20 张表：12 张核心表承载业务，5 张辅助表承载流转与留痕，3 张组织与配置表承载片区、排班与平台价格区间。
+共 22 张表：12 张核心表承载业务，7 张辅助表承载流转、留痕与汇总，3 张组织与配置表承载片区、排班与平台价格区间。
 
 \begin{table}[H]
 \centering
@@ -43,11 +43,13 @@
 \texttt{room\_occupancy} & 占房记录 & 唯一（房间，日期），保证同一晚不被两单占用 \\
 \texttt{work\_order} & 工单 & 维修与换房型；同一房间未关闭工单唯一 \\
 \midrule
-\texttt{approval} & 审批单 & 改价、取消、超限开单、升级房型四类共表 \\
+\texttt{approval} & 审批单 & 改价、取消、升级房型三类共表 \\
 \texttt{review} & 评价 & 订单号唯一，一单一评 \\
 \texttt{audit\_log} & 审计日志 & 只增不改，无 UPDATE/DELETE 权限 \\
 \texttt{notice} & 通知记录 & 失败原因、重试次数、下次重试时间 \\
 \texttt{reconciliation} & 对账记录 & 每日差异与处理结果 \\
+\texttt{delete\_request} & 删除申请 & 原始数据的删除申请与审批留痕 \\
+\texttt{store\_performance} & 绩效汇总 & 按门店与半年度归档的订单数、入住率与评分 \\
 \midrule
 \texttt{region} & 片区 & 片区编号与名称；门店的上级组织 \\
 \texttt{schedule} & 排班 & 唯一（员工，日期，班次）；同时引用门店与员工 \\
@@ -319,21 +321,23 @@ assigned\_at & DATETIME & NOT NULL & 排房时刻 \\
 
 \texttt{work\_order} 工单表字段：\texttt{wo\_id}（PK）、\texttt{room\_id}（FK）、\texttt{type}（1 维修 / 2 换房型）、\texttt{reason}、\texttt{affect\_date}（涉及日期）、\texttt{status}（待执行 / 已执行 / 已拒绝 / 已关闭）、\texttt{submitter\_id}、\texttt{executor\_id}、\texttt{created\_at}。约束：同一房间在 \texttt{status IN (待执行)} 时唯一，防止重复提交（REQ-025）。
 
-5 张辅助表的要点：
+7 张辅助表（含删除申请与绩效汇总）的要点：
 
 \begin{table}[H]
 \centering
 \caption{辅助表要点}
 \tabfont
-\begin{tabularx}{\textwidth}{@{}p{3.0cm}X@{}}
+\begin{tabularx}{\textwidth}{@{}p{3.5cm}X@{}}
 \toprule
 表 & 要点 \\
 \midrule
-\texttt{approval} & 四类审批共表，字段 \texttt{type} 区分改价 / 取消 / 超限开单 / 升级房型；流水号唯一，防止同一申请重复入审批 \\[2pt]
+\texttt{approval} & 三类审批共表，字段 \texttt{type} 区分改价 / 取消 / 升级房型；流水号唯一，防止同一申请重复入审批 \\[2pt]
 \texttt{review} & \texttt{order\_no} 唯一，保证一单一评；评分 \texttt{CHECK (score BETWEEN 1 AND 5)} \\[2pt]
 \texttt{audit\_log} & 只增不改；数据库账号对该表只授予 INSERT 与 SELECT，不授予 UPDATE、DELETE \\[2pt]
 \texttt{notice} & 记录渠道、状态、失败原因、重试次数、下次重试时间；与订单事务无关，写入失败不影响下单 \\[2pt]
-\texttt{reconciliation} & 每日一条对账任务记录，差异单笔落行，\texttt{handle\_result} 记录补单 / 退款 / 转人工 \\
+\texttt{reconciliation} & 每日一条对账任务记录，差异单笔落行，\texttt{handle\_result} 记录补单 / 退款 / 转人工 \\[2pt]
+\texttt{delete\_request} & \texttt{request\_id}（PK）、\texttt{target\_type} 与 \texttt{target\_id} 指明待删数据、\texttt{reason}、\texttt{requester\_id}、\texttt{approver\_id}、\texttt{status}（待审批 / 已批准 / 已驳回）；同一对象未结案时唯一，批准后由 M9 执行删除并留审计（REQ-030） \\[2pt]
+\texttt{store\_performance} & 主键（\texttt{store\_id}，\texttt{period}），按半年归档订单数、入住率、平均评分与营收；汇总后只增不改，供平台审核绩效（REQ-007） \\
 \bottomrule
 \end{tabularx}
 \end{table}

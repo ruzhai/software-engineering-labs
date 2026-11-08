@@ -55,16 +55,16 @@
 \label{fig:uc_c}
 \end{figure}
 
-顾客端用例图包含九个用例。「提交取消申请」作为「取消订单」的条件扩展，仅适用于入住日 18:00 后需审批的取消操作（REQ-021）。
+顾客端用例图包含十个用例（含两个 include 用例）。「提交取消申请」作为「取消订单」的条件扩展，仅适用于入住日 18:00 后需审批的取消操作（REQ-021）。
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.86\textwidth]{../UML/UML用例图_前台端.png}
+\includegraphics[width=0.72\textwidth]{../UML/UML用例图_前台端.png}
 \caption{UML 用例图：前台端}
 \label{fig:uc_f}
 \end{figure}
 
-前台端将「排房」列为「办理入住」的必要步骤，也允许提前单独排房（REQ-024）。入住操作按三步设计（REQ-018）。
+前台端将「排房」列为「办理入住」的必要步骤，也允许提前单独排房（REQ-024）。超出价格区间时前台提交改价申请；店长下发维修工单后，前台负责执行并更新房态（REQ-025）。入住操作按三步设计（REQ-018）。
 
 \begin{figure}[htbp]
 \centering
@@ -73,7 +73,7 @@
 \label{fig:uc_s}
 \end{figure}
 
-店长端在价格区间内可直接设价；超出区间时扩展为「提交改价申请」，审批结果写入审计记录（REQ-014）。
+店长端在价格区间内直接设价，超区间定价被拒绝并提示上下限（REQ-006）；前台提交的改价申请、取消申请与升级房型申请由店长审批，审批结果写入审计记录（REQ-014）。
 
 \begin{figure}[htbp]
 \centering
@@ -97,6 +97,7 @@
 
 订单状态转换条件如下；表外转换均拒绝执行。
 
+\needspace{14cm}
 \begin{table}[H]
 \centering
 \caption{订单状态转换表}

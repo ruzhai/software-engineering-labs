@@ -15,7 +15,7 @@
 \midrule
 顾客 & 手机 H5 & 搜房 $\rightarrow$ 看房型与实时余量 $\rightarrow$ 下单 $\rightarrow$ 15 分钟内支付 $\rightarrow$ 到店入住 $\rightarrow$ 退房后评价；入住日 18:00 前可自助取消 \\
 前台 & 桌面工作台 & 看房态看板与今日待办 $\rightarrow$ 排房 $\rightarrow$ 3 步内办完入住 $\rightarrow$ 退房与派打扫 $\rightarrow$ 线下开单 $\rightarrow$ 18:00 后替顾客提取消申请 \\
-店长 & 桌面后台 & 按日历定房价与线下保留额度 $\rightarrow$ 审批改价 / 取消 / 超限开单 / 维修派单 $\rightarrow$ 排班 $\rightarrow$ 看评价与绩效；对房态\textbf{只读} \\
+店长 & 桌面后台 & 按日历定房价与线下保留额度 $\rightarrow$ 审批改价 / 取消 / 升级房型 / 维修派单 $\rightarrow$ 排班 $\rightarrow$ 看评价与绩效；对房态\textbf{只读} \\
 平台地区负责人 & 桌面后台 & 向门店下发价格区间 $\rightarrow$ 审核跨店绩效 $\rightarrow$ 选派与调动店长 $\rightarrow$ 审批删除原始数据申请；\textbf{不得}代门店办理入住或改房态 \\
 \bottomrule
 \end{tabularx}
@@ -115,6 +115,6 @@ REQ-036 & 账号注册与登录 & —— & 实验一待确认，本设计不覆�
 \begin{enumerate}[leftmargin=3.2em]
   \item \textbf{下单}：在同一事务中先扣库存，再创建订单；扣减失败则整单回滚。
   \item \textbf{支付}：回调改状态与超时任务改状态改的是同一行，都带「状态 = 待支付」条件，谁先改成谁生效。
-  \item \textbf{入住}：房间从空闲变已预定，订单从已确认变已入住，两个状态机在同一个操作里各走一步。
+  \item \textbf{入住}：排房使房间从空闲变已预定，办理入住使房间从已预定变已入住、订单从已确认变已入住；排房可提前单独做，也可在办理入住时一并完成。
   \item \textbf{取消}：18:00 前立即生效，18:00 后转审批；未到店订单取消不退房费；重复提交只退一次。
 \end{enumerate}

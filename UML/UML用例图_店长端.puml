@@ -27,7 +27,7 @@ actor "店长" as S
 
 rectangle "酒店预订系统" {
   usecase "设置日价与库存" as UC1
-  usecase "提交改价申请" as UC2
+  usecase "审批改价申请" as UC2
   usecase "审批取消申请" as UC3
   usecase "审批升级房型申请" as UC4
   usecase "下发维修工单" as UC5
@@ -42,6 +42,4 @@ S --> UC4
 S --> UC5
 S --> UC6
 S --> UC7
-
-UC1 <.. UC2 : <<extend>>
 @enduml
