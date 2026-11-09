@@ -163,16 +163,16 @@
 
 \subsection{交互图：四张时序图}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.68\textwidth]{../UML/UML时序图_并发抢房.png}
+\includegraphics[width=0.82\textwidth]{../UML/UML时序图_并发抢房.png}
 \caption{UML 时序图：并发抢房}
 \label{fig:seq1}
 \end{figure}
 
-并发抢房时，两个条件更新由数据库行锁串行处理；库存为 1 时仅一个请求扣减成功，失败请求不创建订单或支付单（REQ-011）。行锁获取顺序未必等于服务端接收顺序，当前设计只保证并发下不超卖；严格按接收时间排序仍需补充请求排序机制。
+并发抢房时，M4 在统一受理入口为同房型请求原子赋序，按序派发；前一请求完成后才处理下一请求。图中 RA 先于 RB 受理，因此先尝试扣减最后一间房。库存条件更新仍由 MySQL 执行，防止超卖；扣减失败的请求不创建订单或支付单（REQ-011）。这里的“收到提交”以受理入口赋序时刻为准，而非客户端点击时间。
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.68\textwidth]{../UML/UML时序图_改价互斥.png}
 \caption{UML 时序图：改价与下单互斥}
@@ -181,7 +181,7 @@
 
 改价锁按「房型 $\times$ 日期」设置，覆盖读旧价、写新价和提交。等待超过 300 ms 时返回重试提示，不创建订单（REQ-012）。
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.77\textwidth]{../UML/UML时序图_支付回调.png}
 \caption{UML 时序图：支付回调的三种落点}
@@ -197,7 +197,7 @@
 \end{itemize}
 
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.72\textwidth]{../UML/UML时序图_超时释放与对账.png}
 \caption{UML 时序图：超时释放与每日对账}
