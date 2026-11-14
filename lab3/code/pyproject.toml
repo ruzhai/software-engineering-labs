@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hotel-booking"
+version = "0.1.0"
+description = "软件工程实验三：酒店预订管理系统"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pylint>=3", "black>=24"]
+
+[project.scripts]
+hotel-seed = "hotel.seed:main"
+hotel-ui = "hotel.ui.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.pylint.main]
+py-version = "3.12"
+jobs = 1
+
+[tool.pylint.format]
+max-line-length = 100
+
+[tool.pylint.design]
+max-attributes = 20
+max-locals = 25
+
+[tool.pylint."messages control"]
+disable = [
+    "too-few-public-methods",
+    "missing-function-docstring",
+    "missing-class-docstring",
+    "fixme",
+]
