@@ -33,7 +33,9 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         role TEXT NOT NULL,
         status TEXT NOT NULL,
         store_id TEXT REFERENCES store(id),
-        area_id TEXT REFERENCES area(id)
+        area_id TEXT REFERENCES area(id),
+        failed_attempts INTEGER NOT NULL DEFAULT 0,
+        locked_until TEXT
     )""",
     """CREATE TABLE IF NOT EXISTS shift (
         id TEXT PRIMARY KEY,

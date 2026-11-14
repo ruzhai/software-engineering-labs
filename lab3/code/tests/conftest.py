@@ -9,6 +9,7 @@ import pytest
 
 from hotel.core.clock import FakeClock
 from hotel.core.db import Database
+from hotel.m01_account.service import AccountService
 from hotel.m02_store.service import StoreService
 
 
@@ -27,3 +28,8 @@ def clock() -> FakeClock:
 @pytest.fixture
 def store_service(database: Database) -> StoreService:
     return StoreService(database)
+
+
+@pytest.fixture
+def account_service(database: Database, clock: FakeClock) -> AccountService:
+    return AccountService(database, clock)
