@@ -14,4 +14,9 @@ build/
 dist/
 *.spec
 *.db
+*.db-wal
+*.db-shm
 *.sqlite3
+data/
+*.egg-info/
+.pytest_cache/
