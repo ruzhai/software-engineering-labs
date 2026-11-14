@@ -15,6 +15,7 @@ from hotel.m02_store.service import StoreService
 from hotel.m03_pricing.service import PricingService
 from hotel.m04_inventory.service import InventoryService
 from hotel.m05_order.service import OrderService
+from hotel.m06_payment.service import PaymentService
 
 
 @pytest.fixture
@@ -57,6 +58,22 @@ def order_service(
 
 
 @pytest.fixture
+def payment_service(
+    database: Database, clock: FakeClock, inventory_service: InventoryService
+) -> PaymentService:
+    return PaymentService(database, clock, inventory_service)
+
+
+@pytest.fixture
+def wired_order_service(
+    order_service: OrderService, payment_service: PaymentService
+) -> OrderService:
+    """把支付模块接到订单上，取消订单时才会真的发起退款。"""
+    order_service.attach_payment(payment_service)
+    return order_service
+
+
+@pytest.fixture
 def shop(
     store_service: StoreService,
     account_service: AccountService,
@@ -67,10 +84,8 @@ def shop(
     store = store_service.create_store(area.id, "新街口店", "南京", "新街口")
     room_type = store_service.create_room_type(store.id, "大床房", "大床", 2)
     twin = store_service.create_room_type(store.id, "双床房", "双床", 2)
-    for index in range(10):
-        store_service.add_room(room_type.id, f"08{index:02d}")
-    for index in range(5):
-        store_service.add_room(twin.id, f"09{index:02d}")
+    store_service.add_rooms(room_type.id, [f"08{index:02d}" for index in range(10)])
+    store_service.add_rooms(twin.id, [f"09{index:02d}" for index in range(5)])
 
     account_service.bootstrap_staff(
         name="片区负责人",

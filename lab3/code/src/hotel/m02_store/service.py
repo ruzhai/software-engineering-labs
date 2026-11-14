@@ -111,6 +111,34 @@ class StoreService:
             raise ConflictError(f"房号 {room_no} 在该房型下已存在", field="room_no") from exc
         return room
 
+    def add_rooms(self, room_type_id: str, room_numbers: list[str]) -> list[Room]:
+        """批量加房，一次事务完成。店长建店时用，避免逐间往返。"""
+        cleaned = [number.strip() for number in room_numbers]
+        if any(not number for number in cleaned):
+            raise ValidationError("房号不能为空", field="room_no")
+        if len(set(cleaned)) != len(cleaned):
+            raise ConflictError("同一批房号不能重复", field="room_no")
+        rooms = [
+            Room(
+                id=new_id("room"),
+                room_type_id=room_type_id,
+                room_no=number,
+                status=RoomStatus.FREE,
+                repair_until=None,
+            )
+            for number in cleaned
+        ]
+        try:
+            with UnitOfWork(self._db) as conn:
+                repo = StoreRepository(conn)
+                if repo.get_room_type(room_type_id) is None:
+                    raise NotFound("房型不存在", field="room_type_id")
+                for room in rooms:
+                    repo.insert_room(room)
+        except sqlite3.IntegrityError as exc:
+            raise ConflictError("房号已存在", field="room_no") from exc
+        return rooms
+
     def count_rooms(self, room_type_id: str) -> int:
         with UnitOfWork(self._db) as conn:
             return StoreRepository(conn).count_rooms(room_type_id)
