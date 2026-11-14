@@ -1,0 +1,109 @@
+% ==================== 附录 ====================
+\newpage
+\appendix
+\ctexset{
+  section = {
+    name   = {附录},
+    number = \Alph{section},
+    format = \heiti\zihao{3}\raggedright,
+  },
+}
+
+\section{需求—模块—图—界面 追溯矩阵}
+
+下表将实验一的 36 条需求对应到模块、UML 图和界面。「主要图」使用第 5 章的图名；界面编号对应第 6 章；「—」表示无单独界面。
+
+{\tabfont
+\begin{xltabular}{\textwidth}{@{}L{1.75cm}L{2.75cm}L{2.65cm}L{3.75cm}X@{}}
+\caption{需求追溯矩阵}\label{tab:app_trace}\\
+\toprule
+需求 & 名称 & 模块 & 主要图 & 界面 \\
+\midrule
+\endfirsthead
+\toprule
+需求 & 名称 & 模块 & 主要图 & 界面 \\
+\midrule
+\endhead
+\midrule
+\multicolumn{5}{r}{\zihao{6}续下页}\\
+\endfoot
+\bottomrule
+\endlastfoot
+REQ-001 & 角色定义与最小权限 & M1 & 用例图 $\times$4、包图 & 19 \\
+REQ-002 & 顾客查询与预订 & M2/M4/M5 & 类图、活动图 1 & 01, 02, 03, 04 \\
+REQ-003 & 退房与评价提交 & M7/M8 & 状态图·订单、用例图·顾客 & 06, 07, 10 \\
+REQ-004 & 前台办理入住 & M7 & 用例图·前台、状态图·房间 & 09 \\
+REQ-005 & 房间状态机 & M7 & 状态图·房间 & 08, 09, 10 \\
+REQ-006 & 店长门店管理 & M2/M3/M4/M7 & 用例图·店长、类图 & 12, 14 \\
+REQ-007 & 平台地区负责人管理 & M1/M3/M8 & 用例图·平台 & 15, 16, 19 \\
+REQ-008 & 订单状态机 & M5 & 状态图·订单 & 06 \\
+REQ-009 & 取消与退款 & M5/M6 & 类图、时序图·超时释放 & 05, 06, 16, 18 \\
+REQ-010 & 重复提交防护 & M5 & 活动图 1、类图 & 04 \\
+REQ-011 & 并发抢房 & M4 & 时序图·并发抢房、活动图 1 & 03 \\
+REQ-012 & 改价与下单隔离 & M3 & 时序图·改价互斥 & 12, 13 \\
+REQ-013 & 库存与可售上限 & M4 & 类图、组件图 & 02, 03, 12 \\
+REQ-014 & 操作日志 & M9 & 组件图 & 13, 16, 18 \\
+REQ-015 & 性能 & 横切 & 部署图 & — \\
+REQ-016 & 安全 & 横切 & 包图、部署图 & — \\
+REQ-017 & 可靠性与数据一致 & 横切 & 部署图 & — \\
+REQ-018 & 易用性 & 横切 & 用例图·前台 & 09 \\
+REQ-019 & 范围约束 & 约束 & — & — \\
+REQ-020 & 支付超时释放 & M5/M6 & 状态图·订单、时序图·超时释放 & 04, 05 \\
+REQ-021 & 取消截止与前台代取消 & M5 & 状态图·订单、用例图·顾客 & 05, 06 \\
+REQ-022 & 未到店标记与迟入住 & M5/M7 & 状态图·订单 & 08, 10 \\
+REQ-023 & 价格快照与定价依据 & M3/M5 & 类图（明细单价快照） & 03, 04 \\
+REQ-024 & 房号分配 & M7 & 类图（占房记录）、用例图·前台 & 09 \\
+REQ-025 & 房态变更工单 & M7 & 类图（工单）、用例图·前台 & 10, 13 \\
+REQ-026 & 员工信息可见范围 & M1 & 用例图 $\times$4 & 14, 15, 19 \\
+REQ-027 & 输入校验与错误提示 & 横切 & 活动图 1 & 04, 11 \\
+REQ-028 & 支付与订单一致性 & M6/M5 & 时序图·支付回调、时序图·超时释放 & 16 \\
+REQ-029 & 通知失败处理 & M10 & 组件图 & 17 \\
+REQ-030 & 数据保留与删除审批 & M9 & 用例图·平台 & 16, 18 \\
+REQ-031 & 订单变更 & M3/M4/M5 & 用例图·顾客 & 06 \\
+REQ-032 & 多房型多晚次组合 & M4/M5 & 类图（明细唯一约束） & 11 \\
+REQ-033 & 线上可售上限与线下保留 & M2/M4 & 组件图、类图 & 11, 12, 13 \\
+REQ-034 & 维修中与可售上限联动 & M2/M4/M7 & 状态图·房间、组件图 & 08, 12, 13 \\
+REQ-035 & 订单排房时限 & —— & —— & 待确认，不覆盖 \\
+REQ-036 & 账号注册与登录 & —— & —— & 待确认，不覆盖 \\
+\end{xltabular}
+}
+
+其中 34 条需求有设计落点；REQ-035、REQ-036 在实验一待确认，本次未设计具体流程。性能、安全、可靠性等全局约束在相应章节说明，不单独设置界面。
+
+\needspace{9cm}
+\section{提交物清单}
+
+提交包解开后是一层根目录加两个子目录。\texttt{UML/} 下每个 \texttt{.png} 都配有一份同名的 \texttt{.puml}（16 组、32 个文件），下表只列 \texttt{.png}。
+
+{\zihao{5}\ttfamily\raggedright
+\noindent 实验2\_241220031\_曹继贤/\par
+\noindent\hspace*{2em}实验报告.pdf\par
+\noindent\hspace*{2em}UML/\par
+\noindent\hspace*{4em}UML类图.png\qquad UML包图.png\par
+\noindent\hspace*{4em}UML组件图.png\qquad UML部署图.png\par
+\noindent\hspace*{4em}UML用例图\_顾客端.png\qquad UML用例图\_前台端.png\par
+\noindent\hspace*{4em}UML用例图\_店长端.png\qquad UML用例图\_平台端.png\par
+\noindent\hspace*{4em}UML状态图\_订单.png\qquad UML状态图\_房间.png\par
+\noindent\hspace*{4em}UML活动图\_下单与锁库存.png\qquad UML活动图\_支付回调与订单生效.png\par
+\noindent\hspace*{4em}UML时序图\_并发抢房.png\qquad UML时序图\_改价互斥.png\par
+\noindent\hspace*{4em}UML时序图\_支付回调.png\qquad UML时序图\_超时释放与对账.png\par
+\noindent\hspace*{2em}UI界面/\par
+\noindent\hspace*{4em}01\_home\_search.png\qquad 02\_search\_result.png\qquad 03\_hotel\_detail.png\par
+\noindent\hspace*{4em}04\_order\_confirm.png\qquad 05\_payment.png\qquad 06\_my\_orders.png\par
+\noindent\hspace*{4em}07\_review\_submit.png\qquad 08\_room\_board.png\qquad 09\_checkin.png\par
+\noindent\hspace*{4em}10\_housekeeping.png\qquad 11\_walkin\_order.png\qquad 12\_price\_calendar.png\par
+\noindent\hspace*{4em}13\_approval\_center.png\qquad 14\_roster\_review.png\qquad 15\_region\_overview.png\par
+\noindent\hspace*{4em}16\_price\_range\_staffing.png\qquad 17\_message\_center.png\qquad 18\_audit\_log.png\par
+\noindent\hspace*{4em}19\_store\_staff.png\par
+}
+
+\section{图的绘制方式}
+
+16 张 UML 图均由 PlantUML 绘制，源文件与导出图同名存放在 \texttt{UML/} 下，重新生成方式如下：
+
+\begin{quote}
+\zihao{5}\ttfamily
+java -jar plantuml.jar -charset UTF-8 -tpng UML/*.puml
+\end{quote}
+
+绘图约定为白底、深灰线、单一强调色，中文字体统一为 Microsoft YaHei。19 屏界面由 HTML/CSS 生成初稿、经 Pixso 调整后按 2 倍像素密度导出，流程见第 6 章开头。

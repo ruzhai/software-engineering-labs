@@ -1,0 +1,139 @@
+% !TEX program = xelatex
+% 酒店预订管理系统 设计与建模报告 —— 软件工程实验二
+\documentclass[UTF8,a4paper,zihao=-4,fntsize=12pt]{ctexart}
+
+\usepackage{geometry}
+\geometry{top=2.5cm,bottom=2.3cm,left=2.5cm,right=2.5cm,headsep=6mm,footskip=9mm}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{xltabular}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{capt-of}
+\usepackage{needspace}
+\usepackage{float}
+\usepackage{placeins}
+% 尽量让图与正文同页，减少整页只有一张图的空档
+\renewcommand{\textfraction}{0.06}
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.80}
+\renewcommand{\floatpagefraction}{0.86}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{4}
+\usepackage[hidelinks]{hyperref}
+
+% ---------- 字体与排版 ----------
+\linespread{1.35}
+\setlength{\headheight}{14pt}
+\setlength{\emergencystretch}{2em}
+% 不留单行孤行（段首/段末各至少两行）
+\widowpenalty=10000
+\clubpenalty=10000
+\setlength{\parskip}{0.35em}
+\setlength{\parindent}{2em}
+\raggedbottom
+\setlist{nosep,leftmargin=3em,itemsep=2pt,topsep=3pt}
+
+\ctexset{
+  section = {
+    name   = {,},
+    number = \arabic{section},
+    format = \heiti\zihao{3}\raggedright,
+    aftername = \hspace{0.55em},
+    beforeskip = 1.1em plus 0.2em minus 0.1em,
+    afterskip  = 0.6em plus 0.1em minus 0.1em,
+  },
+  subsection = {
+    name   = {,},
+    number = \arabic{section}.\arabic{subsection},
+    format = \heiti\zihao{4}\raggedright,
+    aftername = \hspace{0.5em},
+    beforeskip = 0.9em plus 0.15em minus 0.1em,
+    afterskip  = 0.45em plus 0.1em minus 0.1em,
+  },
+  subsubsection = {
+    name   = {,},
+    number = \arabic{section}.\arabic{subsection}.\arabic{subsubsection},
+    format = \heiti\zihao{-4}\raggedright,
+    aftername = \hspace{0.4em},
+    beforeskip = 0.7em plus 0.1em minus 0.1em,
+    afterskip  = 0.35em plus 0.1em minus 0.1em,
+  },
+}
+
+% ---------- 页眉页脚 ----------
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[C]{\zihao{5}\songti 软件工程实验二\quad 酒店预订管理系统设计与建模报告}
+\fancyfoot[C]{\zihao{5}—\ \thepage\ —}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+\fancypagestyle{plain}{%
+  \fancyhf{}%
+  \fancyfoot[C]{\zihao{5}—\ \thepage\ —}%
+  \renewcommand{\headrulewidth}{0pt}%
+}
+
+% ---------- 图表 ----------
+\renewcommand{\arraystretch}{1.15}
+\renewcommand{\tablename}{表}
+\renewcommand{\figurename}{图}
+\captionsetup[table]{font=small,labelsep=quad,position=top,skip=5pt}
+\captionsetup[figure]{font=small,labelsep=quad,position=bottom,skip=6pt}
+\newcommand{\tabfont}{\zihao{5}}
+% 窄列不要两端对齐，否则中文字距会被拉开成「字 距 稀 疏」
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\hypersetup{
+  pdftitle  = {酒店预订管理系统 设计与建模报告},
+  pdfauthor = {曹继贤},
+  pdfsubject= {软件工程实验二 · 软件设计与建模},
+  pdfkeywords = {软件设计; UML; 架构设计; 数据库设计; UI 设计; 酒店预订}
+}
+
+\begin{document}
+
+% ==================== 封面 ====================
+\thispagestyle{empty}
+\null\vfill
+\begin{center}
+{\zihao{3} 软件工程实验二}\\[2.2em]
+{\heiti\zihao{1} 软件设计与建模报告}\\[1.4em]
+\rule{0.62\textwidth}{0.8pt}\\[1.4em]
+{\zihao{4} 酒店预订管理系统}\\[0.5em]
+{\zihao{5} （小型单体酒店，承接实验一）}\\[3.2em]
+
+{\zihao{4}
+\renewcommand{\arraystretch}{1.6}
+\begin{tabular}{r@{\hspace{1em}}l}
+学\qquad 号 & 241220031 \\
+姓\qquad 名 & 曹继贤 \\
+指导教师 & 王\quad 豫 \\
+实验日期 & 2026 年 11 月 9 日 \\
+\end{tabular}}
+\end{center}
+\vfill
+\newpage
+
+% ---------- 目录 ----------
+{\renewcommand{\contentsname}{目\quad 录}
+\tableofcontents}
+\newpage
+
+\input{ch1}
+\input{ch2}
+\input{ch3}
+\input{ch4}
+\input{ch5}
+\input{ch6}
+\input{ch7}
+\input{ch8}
+\input{app}
+
+\end{document}

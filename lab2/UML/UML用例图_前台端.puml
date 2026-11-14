@@ -1,0 +1,52 @@
+@startuml UML用例图_前台端
+skinparam dpi 250
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam linetype ortho
+skinparam ArrowColor #4A5568
+skinparam ArrowFontColor #4A5568
+skinparam ArrowFontSize 11
+skinparam UsecaseBackgroundColor #F7FAFC
+skinparam UsecaseBorderColor #4A5568
+skinparam UsecaseFontColor #2D3748
+skinparam UsecaseFontSize 12
+skinparam ActorBackgroundColor #FFFFFF
+skinparam ActorBorderColor #4A5568
+skinparam ActorFontColor #2D3748
+skinparam ActorFontSize 13
+skinparam RectangleBackgroundColor #FFFFFF
+skinparam RectangleBorderColor #A0AEC0
+skinparam RectangleFontColor #2D3748
+skinparam RectangleFontSize 13
+skinparam nodesep 45
+skinparam ranksep 55
+left to right direction
+
+actor "前台" as F
+
+rectangle "酒店预订系统" {
+  usecase "查看今日待办与房态" as UC1
+  usecase "办理入住" as UC2
+  usecase "排房" as UC3
+  usecase "办理退房" as UC4
+  usecase "线下开单" as UC5
+  usecase "扣减线下保留额度" as UC6
+  usecase "维护房态" as UC7
+  usecase "执行维修工单" as UC8
+  usecase "代客取消订单" as UC9
+  usecase "提交改价申请" as UC10
+}
+
+F --> UC1
+F --> UC2
+F --> UC4
+F --> UC5
+F --> UC7
+F --> UC9
+F --> UC10
+
+UC2 ..> UC3 : <<include>>
+UC5 ..> UC6 : <<include>>
+UC7 ..> UC8 : <<extend>>
+@enduml

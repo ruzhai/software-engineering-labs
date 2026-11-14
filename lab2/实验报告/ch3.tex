@@ -1,0 +1,156 @@
+% ==================== 三、软件架构设计 ====================
+\section{软件架构设计}
+
+\subsection{架构方案与选型依据}
+
+本次设计采用单体应用，代码按表现层、接入层、领域层和基础设施层组织；领域层再按业务职责划分模块。各层的包结构见图~\ref{fig:pkg}，模块间的调用与事件关系见图~\ref{fig:comp}。
+
+选择单体应用，主要是为了让下单时的库存扣减与订单创建共用一个数据库事务。实验一要求按「房型 $\times$ 日期」维护库存、避免并发超卖（REQ-011、REQ-013）；因此在本设计中，由 M4 负责库存写入，M5 负责订单创建，二者在一次下单流程中完成。顾客端和前台端使用同一套库存与订单规则，只在操作入口和权限上区分。
+
+改价与下单的互斥、订单与房间状态的联动仍需单独处理，分别在本章的交互设计和第 5 章的 UML 图中说明。这里的分层与模块划分是代码组织方案，并不表示要把各模块部署为独立服务。
+
+\subsection{分层与包结构}
+
+图 \ref{fig:pkg} 展示表现层、接入层、领域层和基础设施层的包结构及依赖关系。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.96\textwidth]{../UML/UML包图.png}
+\caption{UML 包图：四层结构与十个领域包}
+\label{fig:pkg}
+\end{figure}
+
+各层职责如下：
+
+\begin{itemize}
+  \item \textbf{表现层}：按角色展示界面并校验表单；业务校验仍由服务端执行（REQ-027）。
+  \item \textbf{接入层}：处理鉴权、限流、幂等键和审计记录。
+  \item \textbf{领域层}：按八个业务模块组织规则，通过仓储接口访问数据。
+  \item \textbf{基础设施层}：提供仓储实现、消息队列、Redis 及支付、短信适配器。
+\end{itemize}
+
+M5 释放库存时调用 M4，不直接修改日库存表。库存写入统一由 M4 处理（REQ-011）。
+
+\subsection{模块划分与依赖关系}
+
+\subsubsection{组件图与依赖表}
+
+图 \ref{fig:comp} 用实线表示模块调用，用虚线表示事件关系。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.68\textwidth]{../UML/UML组件图.png}
+\caption{UML 组件图：十个模块的调用依赖与事件订阅}
+\label{fig:comp}
+\end{figure}
+
+主要依赖和事件流向列于下表；组件图中的虚线以订单事件为例。
+
+\begin{table}[H]
+\centering
+\caption{主要模块依赖及其依据}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{2.5cm}L{1.8cm}X@{}}
+\toprule
+依赖 & 类型 & 对应操作 \\
+\midrule
+M5 $\rightarrow$ M4 & 调用 & 下单预占、取消与超时释放库存（REQ-011、REQ-013） \\
+M5 $\rightarrow$ M3 & 调用 & 下单取价并生成价格快照（REQ-023） \\
+M5 $\rightarrow$ M6 & 调用 & 用户点「去支付」时创建支付单（不在下单时创建，见决策四） \\
+M6 $\rightarrow$ M5 & 事件 & 支付成功后 M6 只发事件，M5 订阅后自行推进订单状态 \\
+M4 $\rightarrow$ M2 & 调用 & 计算可售上限需要房间总数与维修间数（REQ-033、REQ-034） \\
+M7 $\rightarrow$ M2 & 调用 & 排房时查询可用房间（REQ-024） \\
+M7 $\rightarrow$ M5 & 调用 & 入住与退房要同步推进订单状态（REQ-004） \\
+M8 $\rightarrow$ M5 & 调用 & 提交评价前校验订单已退房（REQ-003） \\
+M5、M6、M7 $\rightarrow$ M10 & 事件 & 订单、支付、工单事件触发通知（REQ-029） \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsubsection{模块职责边界}
+
+以下三处职责在模块划分时单独确定：
+
+\textbf{维修信息}保存在 M2 的房间档案中，由 M7 的房态操作更新；M4 从 M2 读取维修数据，计算逐日可售上限。
+
+\textbf{排房}由 M7 负责。M2 保存房间档案，M7 保存订单对房间的占用记录并校验日期冲突。
+
+\textbf{通知}由 M10 订阅订单、支付和工单事件。事件包含通知所需的订单号、金额、联系方式和时间；通知失败不回滚业务操作（REQ-029）。
+
+\subsubsection{横切模块的画法}
+
+M1 与 M9 在组件图中归入「公共支撑」，各业务模块对两者的依赖用一根汇总箭头表示。
+
+\subsection{模块之间的交互}
+
+模块交互的先后顺序见第 5 章的活动图与时序图。本节列出下单、支付回调和改价三条主要链路。
+
+\subsubsection{下单与扣库存}
+
+顾客提交订单时携带请求号，网关按请求号做幂等校验。M4 的统一受理入口按房型给请求原子赋序，同房型请求依次处理；单体原型用进程内队列实现这一步。取得处理机会后，M5 在同一事务内完成「条件扣减库存 + 插入待支付订单」。库存扣减写在 SQL 的 WHERE 子句里：
+
+\begin{quote}
+\zihao{5}\ttfamily
+UPDATE daily\_inventory SET online\_sold = online\_sold + n\\
+WHERE room\_type\_id = ? AND stay\_date = ?\\
+AND online\_sold + n <= online\_limit
+\end{quote}
+
+条件更新影响 0 行时返回库存不足；多晚订单有任一晚扣减失败则回滚整个事务（REQ-011）。队列负责先到先处理，数据库条件更新负责并发下不超卖，两者作用不同。
+
+\subsubsection{支付回调与订单生效}
+
+支付回调由 M6 验签并判重。订单仍为待支付时转为已确认；订单已因超时取消时发起原路退款，不恢复订单（REQ-028）。
+
+\subsubsection{改价与下单互斥}
+
+改价与下单按「房型 $\times$ 日期」互斥。改价锁覆盖读价、写价和提交；等锁超过 300 ms 时返回重试提示，不按旧价下单（REQ-012）。
+
+\subsection{部署形态}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.92\textwidth]{../UML/UML部署图.png}
+\caption{UML 部署图：应用、缓存、数据库与两类外部系统}
+\label{fig:deploy}
+\end{figure}
+
+图 \ref{fig:deploy} 给出本次设计的部署结构：
+
+\begin{itemize}
+  \item 用户请求经 HTTPS 到达 Nginx，再转发给应用服务；应用与数据库位于内网。
+  \item M1--M10 在同一应用中运行；MySQL 保存业务数据，Redis 用于价格锁与限流计数。
+  \item 调度器与应用同机，触发支付超时释放、日终保留释放和每日对账。
+  \item 库存与订单写入同一 MySQL，便于在一个事务中处理下单。
+\end{itemize}
+
+\subsection{八条关键设计决策与代价}
+
+主要设计取舍及其代价列于下表。
+
+{\tabfont
+\begin{xltabular}{\textwidth}{@{}p{0.5cm}p{3.3cm}X@{}}
+\caption{关键设计决策与代价}\label{tab:decisions}\\
+\toprule
+\# & 决策 & 取舍与代价 \\
+\midrule
+\endfirsthead
+\toprule
+\# & 决策 & 取舍与代价 \\
+\midrule
+\endhead
+\midrule
+\multicolumn{3}{r}{\zihao{6}续下页}\\
+\endfoot
+\bottomrule
+\endlastfoot
+一 & 单体应用 & 库存扣减与订单创建使用同一事务；模块边界依赖代码约束，暂不做进程隔离。 \\
+二 & 按「房型 $\times$ 日期」记录库存 & 下单按房型占库存，入住前再排房；查询多晚余量需逐日汇总，排房另查占房记录。 \\
+三 & MySQL 负责库存计数 & 不在 Redis 复制库存计数；并发集中在同一库存行时，写入吞吐受数据库行锁限制。 \\
+四 & 点击「去支付」时创建支付单 & 下单与支付分开；对账时需区分未支付订单和支付记录缺失。 \\
+五 & 订单与房间分别建状态机 & 转换表集中列出允许的状态变化；新增状态需同步更新状态图、转换规则和界面文案。 \\
+六 & 订单明细保存价格快照 & 历史订单金额不随日价变更；展示时区分成交价与当前价（REQ-023）。 \\
+七 & 查询使用缓存，写入落 MySQL & 房型与价格查询使用 5 秒缓存，改价后主动失效对应条目；短时间内仍需处理缓存更新顺序。 \\
+八 & 在接入层校验权限 & M1 集中处理角色与数据范围（REQ-016）；领域模块不对外开放端口，内部调用沿用已校验的身份信息。 \\
+\end{xltabular}
+}

@@ -1,0 +1,39 @@
+@startuml UML状态图_订单
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam linetype ortho
+skinparam ArrowColor #4A5568
+skinparam ArrowFontColor #4A5568
+skinparam ArrowFontSize 11
+skinparam state {
+  BackgroundColor #F7FAFC
+  BorderColor #4A5568
+  FontColor #2D3748
+  FontSize 13
+  BorderThickness 1.1
+}
+skinparam nodesep 240
+skinparam ranksep 90
+skinparam dpi 300
+
+state "待支付" as S1
+state "已确认" as S2
+state "已入住" as S3
+state "已退房" as S4
+state "未到店" as S5
+state "已取消" as S6
+
+[*] -down-> S1
+S1 -down-> S2 : 支付成功
+S2 -down-> S3 : 办理入住
+S3 -right-> S4 : 办理退房
+S2 -left-> S5 : [22:00 未到店]
+S5 -down-> S3 : [次日 12:00 前到店]
+S5 -left-> S6 : [次日 12:00 未到店]
+S5 -up-> S6 : 自助取消 / 审批通过
+S1 -left-> S6 : [超时未支付]
+S2 -down-> S6 : 入住前取消
+
+S2 -[hidden]right-> S3
+@enduml

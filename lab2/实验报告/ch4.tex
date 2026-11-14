@@ -1,0 +1,363 @@
+% ==================== 四、数据库设计 ====================
+\section{数据库设计}
+
+\subsection{设计原则}
+
+数据库表结构重点落实以下约束：
+
+\begin{enumerate}[leftmargin=3.2em]
+  \item 请求号唯一，防止重复创建订单（REQ-010）。
+  \item 库存扣减采用条件更新，防止同一房型同一晚超卖（REQ-011）。
+  \item 房间与晚次的组合唯一，防止重复排房（REQ-024）。
+\end{enumerate}
+
+字段类型采用以下约定：
+
+\begin{itemize}
+  \item 金额使用 \texttt{DECIMAL(10,2)}，供订单金额与支付金额比对。
+  \item 入住日、晚次日期使用 \texttt{DATE}；下单、支付等操作时刻使用 \texttt{DATETIME}。
+\end{itemize}
+
+\subsection{核心表清单}
+
+共 22 张表：12 张核心表承载业务，7 张辅助表承载流转、留痕与汇总，3 张组织与配置表承载片区、排班与平台价格区间。
+
+\begin{table}[H]
+\centering
+\caption{表清单与职责}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}p{3.3cm}p{2.4cm}X@{}}
+\toprule
+表名 & 中文名 & 职责与关键约束 \\
+\midrule
+\texttt{user} & 账号 & 四类角色、所属门店或片区、账号状态 \\
+\texttt{store} & 门店 & 营业状态、城市与地段、所属片区 \\
+\texttt{room\_type} & 房型 & 房间总数、最大入住人数、是否上架 \\
+\texttt{room} & 房间 & 房号、楼层、当前状态、预计修复日期 \\
+\texttt{daily\_price} & 日价 & 主键（房型，日期）；价格来源区分人工定价与平台默认 \\
+\texttt{daily\_inventory} & 日库存 & 主键（房型，日期）；上限、线上已售、线下保留、线下已售 \\
+\texttt{orders} & 订单 & 请求号唯一；状态、房间数、总金额、支付截止时间 \\
+\texttt{order\_item} & 订单明细 & 唯一（订单，房型，日期）；单价快照在此 \\
+\texttt{payment} & 支付单 & 支付单号唯一、渠道流水号唯一 \\
+\texttt{refund} & 退款单 & 幂等键唯一，保证重复提交只退一次 \\
+\texttt{room\_occupancy} & 占房记录 & 唯一（房间，日期），保证同一晚不被两单占用 \\
+\texttt{work\_order} & 工单 & 维修与换房型；同一房间未关闭工单唯一 \\
+\midrule
+\texttt{approval} & 审批单 & 改价、取消、升级房型三类共表 \\
+\texttt{review} & 评价 & 订单号唯一，一单一评 \\
+\texttt{audit\_log} & 审计日志 & 只增不改，无 UPDATE/DELETE 权限 \\
+\texttt{notice} & 通知记录 & 失败原因、重试次数、下次重试时间 \\
+\texttt{reconciliation} & 对账记录 & 每日差异与处理结果 \\
+\texttt{delete\_request} & 删除申请 & 原始数据的删除申请与审批留痕 \\
+\texttt{store\_performance} & 绩效汇总 & 按门店与半年度归档的订单数、入住率与评分 \\
+\midrule
+\texttt{region} & 片区 & 片区编号与名称；门店的上级组织 \\
+\texttt{schedule} & 排班 & 唯一（员工，日期，班次）；同时引用门店与员工 \\
+\texttt{price\_range} & 价格区间 & 平台按门店下发的价格上下限与生效日期 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+\subsection{表结构}
+
+\subsubsection{账号、门店与组织}
+
+\begin{table}[H]
+\centering
+\caption{\texttt{region} 片区表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{2.7cm}L{2.9cm}L{2.6cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+region\_id & CHAR(20) & PK & 片区编号 \\
+name & VARCHAR(32) & UNIQUE & 片区名称 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+片区是平台地区负责人的数据范围单位：\texttt{user.region\_id} 与 \texttt{store.region\_id} 都指向本表，负责人只看到本片区内的门店、员工与绩效（REQ-007、REQ-026）。
+
+\begin{table}[H]
+\centering
+\caption{\texttt{user} 账号表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{2.7cm}L{2.9cm}L{2.6cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+user\_id & CHAR(20) & PK & 账号编号 \\
+name & VARCHAR(32) & NOT NULL & 姓名 \\
+phone & VARCHAR(20) & UNIQUE & 手机号即登录名 \\
+pwd\_hash & VARCHAR(255) & NOT NULL & 保存带随机盐的密码哈希（REQ-016） \\
+role & TINYINT & NOT NULL & 1 顾客 / 2 前台 / 3 店长 / 4 平台地区负责人 \\
+store\_id & CHAR(20) & FK, NULL & 前台与店长必填；顾客与平台负责人为空 \\
+region\_id & CHAR(20) & FK, NULL & 平台地区负责人必填 \\
+status & TINYINT & NOT NULL & 1 正常 / 2 停用 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\texttt{store} 表字段为 \texttt{store\_id}（PK）、\texttt{name}、\texttt{city}、\texttt{area}（地段）、\texttt{region\_id}（FK）、\texttt{business\_status}（1 营业 / 2 停业）。停业只影响新订单，不影响已有订单（REQ-006）。
+
+\begin{table}[H]
+\centering
+\caption{\texttt{schedule} 排班表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{2.7cm}L{2.9cm}L{2.6cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+schedule\_id & CHAR(20) & PK & 排班编号 \\
+user\_id & CHAR(20) & FK & 前台账号 \\
+store\_id & CHAR(20) & FK & 所属门店，须与 \texttt{user.store\_id} 一致 \\
+work\_date & DATE & NOT NULL & 班次日期 \\
+shift & TINYINT & NOT NULL & 1 早班 / 2 中班 / 3 晚班 \\
+check\_in\_at & DATETIME & NULL & 打卡上班时间 \\
+check\_out\_at & DATETIME & NULL & 打卡下班时间 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+排班以「员工、日期、班次」唯一，同一前台在同一天的不同班次可以各有一条记录。打卡时间记在同一条记录上而不另建表：打卡只对已排的班次有意义，分离后反而需要额外校验两者对应关系（REQ-006、REQ-026）。
+
+\subsubsection{房源}
+
+\begin{table}[H]
+\centering
+\caption{\texttt{room\_type} 房型表与 \texttt{room} 房间表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{2.7cm}L{2.9cm}L{2.6cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{room\_type 房型}} \\
+room\_type\_id & CHAR(20) & PK & 房型编号 \\
+store\_id & CHAR(20) & FK & 所属门店 \\
+name & VARCHAR(32) & NOT NULL & 如「高级大床房」 \\
+bed & VARCHAR(32) & & 床型 \\
+max\_guests & SMALLINT & NOT NULL & 最大入住人数，供 REQ-027 校验 \\
+total\_rooms & SMALLINT & NOT NULL & 房间总数，可售上限公式的起点 \\
+on\_sale & TINYINT & NOT NULL & 1 上架 / 2 下架 \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{room 房间}} \\
+room\_id & CHAR(20) & PK & 房间编号 \\
+store\_id & CHAR(20) & FK & 所属门店，须与房型的所属门店一致 \\
+room\_type\_id & CHAR(20) & FK & 所属房型 \\
+room\_no & VARCHAR(10) & 复合唯一 & 房号，如 408；唯一索引为（store\_id, room\_no） \\
+floor & TINYINT & NOT NULL & 楼层；房型与楼层绑定，见 1.5 节 \\
+status & TINYINT & NOT NULL & 六种房态之一 \\
+repair\_until & DATE & NULL & 预计修复日期，为空表示无维修计划 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\texttt{room} 表冗余保存 \texttt{store\_id}，是为了让「同一门店房号唯一、不同门店可重号」能由唯一索引直接保证；若只保留 \texttt{room\_type\_id}，唯一约束就要跨表引用房型的所属门店，数据库无法建立这样的索引。写入房间时校验 \texttt{store\_id} 与房型一致。
+
+\texttt{repair\_until} 这一列是 M4 计算可售上限的依据。它放在房间档案上而不是工单上，是为了让库存只依赖 M2 一个模块（见 3.3 节边界约定一）。同一房间重复登记维修只覆盖该列，不重复扣减（REQ-034）。
+
+\subsubsection{价格与库存}
+
+\begin{table}[H]
+\centering
+\caption{\texttt{daily\_price} 日价与 \texttt{daily\_inventory} 日库存}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{3.0cm}L{2.9cm}L{3.4cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{daily\_price 日价}} \\
+room\_type\_id & CHAR(20) & PK(1) & \\
+stay\_date & DATE & PK(2) & 晚次日期 \\
+amount & DECIMAL(10,2) & NOT NULL & 当日房价 \\
+source & TINYINT & NOT NULL & 1 店长设定 / 2 平台默认 / 3 节假日规则 \\
+updated\_by & CHAR(20) & FK & 最近一次改价的操作人 \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{daily\_inventory 日库存}} \\
+room\_type\_id & CHAR(20) & PK(1) & \\
+stay\_date & DATE & PK(2) & 晚次日期 \\
+online\_limit & SMALLINT & NOT NULL & 线上可售上限 \\
+online\_sold & SMALLINT & NOT NULL DEFAULT 0 & 线上已售 \\
+offline\_hold & SMALLINT & NOT NULL DEFAULT 0 & 线下保留额度 \\
+offline\_sold & SMALLINT & NOT NULL DEFAULT 0 & 线下已售 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+日价和日库存均以「房型、日期」为复合主键。10 月 31 日入住、11 月 2 日离店的订单占用 10 月 31 日与 11 月 1 日两晚的库存（REQ-013）。
+
+线上可售上限由公式维护，不由人直接填：
+
+\[
+\texttt{online\_limit} = \texttt{total\_rooms} - \text{当日维修间数} - \texttt{offline\_hold}
+\]
+
+店长可手动下调线上可售上限，但不得高于公式值；这一设置保留了 REQ-006 的调整入口，同时满足 REQ-033 的上限约束。
+
+\begin{table}[H]
+\centering
+\caption{\texttt{price\_range} 价格区间表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{2.7cm}L{2.9cm}L{2.6cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+range\_id & CHAR(20) & PK & 区间编号 \\
+store\_id & CHAR(20) & FK & 接收该区间的门店 \\
+effective\_date & DATE & NOT NULL & 生效日期 \\
+min\_price & DECIMAL(10,2) & NOT NULL & 当日价格下限 \\
+max\_price & DECIMAL(10,2) & NOT NULL & 当日价格上限 \\
+created\_by & CHAR(20) & FK & 下发该区间的平台地区负责人 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+价格区间按「门店、生效日期」生效，同一天有多个区间时取最新一条；店长设定日价时校验其落在区间内。区间下调后已超出的当日价格不自动改价，只提示店长调整（REQ-007）。区间本身不参与下单链路，只在下单取价时用于校验，因此与日价分开存表。
+
+\subsubsection{订单与明细}
+
+\begin{table}[H]
+\centering
+\caption{\texttt{orders} 订单表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{3.0cm}L{3.0cm}L{2.8cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+order\_no & CHAR(22) & PK & 订单号，含日期前缀 \\
+request\_no & CHAR(36) & \textbf{UNIQUE} & 请求号，REQ-010 的幂等键 \\
+pay\_no & CHAR(32) & NULL, \textbf{UNIQUE} & 支付单号；对账补单时回填，保证同一笔支付只补一单 \\
+customer\_id & CHAR(20) & FK & 下单顾客 \\
+store\_id & CHAR(20) & FK & 所属门店 \\
+status & TINYINT & NOT NULL & 六种订单状态之一 \\
+room\_count & SMALLINT & NOT NULL & 本单总间数，用于列表展示 \\
+total\_amount & DECIMAL(10,2) & NOT NULL & 各明细小计之和 \\
+check\_in & DATE & NOT NULL & 入住日 \\
+check\_out & DATE & NOT NULL & 离店日 \\
+pay\_deadline & DATETIME & NOT NULL & 下单后 15 分钟，超时扫描用 \\
+check\_in\_at & DATETIME & NULL & 实际入住时刻 \\
+created\_at & DATETIME & NOT NULL & 下单时刻 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\texttt{request\_no} 设置唯一索引，并发重放时仅允许一张订单写入（REQ-010）。
+
+\begin{table}[H]
+\centering
+\caption{\texttt{order\_item} 订单明细表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{3.0cm}L{3.0cm}L{3.2cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+item\_id & CHAR(24) & PK & 明细编号 \\
+order\_no & CHAR(22) & FK & 所属订单 \\
+room\_type\_id & CHAR(20) & 唯一(1) & \\
+stay\_date & DATE & 唯一(2) & 晚次日期 \\
+qty & SMALLINT & NOT NULL & 间数，正整数 \\
+unit\_price & DECIMAL(10,2) & NOT NULL & \textbf{下单时的价格快照} \\
+subtotal & DECIMAL(10,2) & NOT NULL & $=$ 单价 $\times$ 间数 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\texttt{UNIQUE(order\_no, room\_type\_id, stay\_date)} 约束同一订单的同房型、同晚次只保留一条明细，重复选择时累加间数（REQ-032）。\texttt{unit\_price} 保存下单时价格，改价不回写（REQ-023）。
+
+\subsubsection{支付、退款与占房}
+
+\begin{table}[H]
+\centering
+\caption{\texttt{payment} 支付单与 \texttt{refund} 退款单}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{2.9cm}L{2.9cm}L{3.0cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{payment 支付单}} \\
+pay\_no & CHAR(24) & PK & 本系统支付单号 \\
+order\_no & CHAR(22) & FK & 所属订单 \\
+amount & DECIMAL(10,2) & NOT NULL & 支付金额 \\
+channel & TINYINT & NOT NULL & 微信 / 支付宝 / 银行卡 \\
+txn\_no & VARCHAR(64) & \textbf{UNIQUE} & 支付平台流水号，回调判重用 \\
+status & TINYINT & NOT NULL & 待支付 / 成功 / 失败 / 已退款 \\
+paid\_at & DATETIME & NULL & 支付时刻 \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{refund 退款单}} \\
+refund\_no & CHAR(24) & PK & 退款单号 \\
+pay\_no & CHAR(24) & FK & 原支付单，原路退回 \\
+amount & DECIMAL(10,2) & NOT NULL & 退款金额 \\
+idem\_key & CHAR(64) & \textbf{UNIQUE} & 幂等键：订单号 + 取消动作序号 \\
+reason & VARCHAR(64) & & 取消原因 \\
+status & TINYINT & NOT NULL & 处理中 / 成功 / 失败 \\
+refunded\_at & DATETIME & NULL & 退款完成时刻 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\texttt{refund.idem\_key} 采用「订单号 + 退款动作序号」并设置唯一索引。同一订单发生差额退款和取消退款时，两次退款使用不同序号；重复提交同一次退款仍使用原键（REQ-009）。
+
+\begin{table}[H]
+\centering
+\caption{\texttt{room\_occupancy} 占房记录表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{2.9cm}L{2.9cm}L{3.4cm}X@{}}
+\toprule
+字段 & 类型 & 约束 & 说明 \\
+\midrule
+occ\_id & CHAR(24) & PK & 记录编号 \\
+order\_no & CHAR(22) & FK & 占用它的订单 \\
+room\_id & CHAR(20) & 唯一(1) & \\
+stay\_date & DATE & 唯一(2) & 晚次日期 \\
+assigned\_by & CHAR(20) & FK & 排房操作人 \\
+assigned\_at & DATETIME & NOT NULL & 排房时刻 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+占房记录按「房间 $\times$ 晚」存储，并设置 \texttt{UNIQUE(room\_id, stay\_date)}，防止同一房间同晚重复分配（REQ-024）。
+
+占房记录只在\textbf{排房}时写入，下单时不写——因为下单时顾客并不知道住哪间（REQ-024）。
+
+\subsubsection{工单与辅助表}
+
+\texttt{work\_order} 工单表字段：\texttt{wo\_id}（PK）、\texttt{room\_id}（FK）、\texttt{type}（1 维修 / 2 换房型）、\texttt{reason}、\texttt{affect\_date}（涉及日期）、\texttt{status}（待执行 / 已执行 / 已拒绝 / 已关闭）、\texttt{submitter\_id}、\texttt{executor\_id}、\texttt{created\_at}。约束：同一房间在 \texttt{status IN (待执行)} 时唯一，防止重复提交（REQ-025）。
+
+7 张辅助表（含删除申请与绩效汇总）的要点：
+
+\begin{table}[H]
+\centering
+\caption{辅助表要点}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}p{3.5cm}X@{}}
+\toprule
+表 & 要点 \\
+\midrule
+\texttt{approval} & 三类审批共表，字段 \texttt{type} 区分改价 / 取消 / 升级房型；流水号唯一，防止同一申请重复入审批 \\[2pt]
+\texttt{review} & \texttt{order\_no} 唯一，保证一单一评；评分 \texttt{CHECK (score BETWEEN 1 AND 5)} \\[2pt]
+\texttt{audit\_log} & 记录操作人、角色快照、原因、来源 IP 与设备、动作、对象、变更前后值与时间；只增不改，数据库账号对该表只授予 INSERT 与 SELECT（REQ-014） \\[2pt]
+\texttt{notice} & 记录渠道、状态、失败原因、重试次数、下次重试时间；与订单事务无关，写入失败不影响下单 \\[2pt]
+\texttt{reconciliation} & 每日一条对账任务记录，差异单笔落行，\texttt{handle\_result} 记录补单 / 退款 / 转人工 \\[2pt]
+\texttt{delete\_request} & \texttt{request\_id}（PK）、\texttt{target\_type} 与 \texttt{target\_id} 指明待删数据、\texttt{reason}、\texttt{requester\_id}、\texttt{approver\_id}、\texttt{status}（待审批 / 已批准 / 已驳回）；同一对象未结案时唯一，批准后由 M9 执行删除并留审计（REQ-030） \\[2pt]
+\texttt{store\_performance} & 主键（\texttt{store\_id}，\texttt{period}），按半年归档订单数、入住率、平均评分与营收；汇总后只增不改，供平台审核绩效（REQ-007） \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{主要数据库约束}
+
+\begin{table}[H]
+\centering
+\caption{需求约束与数据库实现的对应}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}p{3.4cm}p{3.6cm}X@{}}
+\toprule
+需求约束 & 数据库手段 & 并发时的作用 \\
+\midrule
+同一请求号只落一单（REQ-010） & \texttt{orders.request\_no} UNIQUE & 并发重放时两次插入同时通过应用层判重，只有唯一索引能拦住第二次 \\
+同一晚不超卖（REQ-011） & \texttt{UPDATE ... WHERE sold + n <= online\_limit} & 先查再改之间必然有间隙，100 并发下必然多卖 \\
+同一房间同一晚不被两单占用（REQ-024） & \texttt{room\_occupancy} 唯一（房间，日期） & 两笔排房同时通过「房间是否空闲」检查，只有唯一索引能拦住第二笔 \\
+重复取消只退一次（REQ-009） & \texttt{refund.idem\_key} UNIQUE & 退款动作可能来自顾客自助、前台代提、审批通过三个入口 \\
+一单一评（REQ-003） & \texttt{review.order\_no} UNIQUE & 同一订单的两次评价可能来自两个终端 \\
+\bottomrule
+\end{tabularx}
+\end{table}

@@ -1,0 +1,81 @@
+@startuml UML时序图_支付回调
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam dpi 250
+skinparam sequenceArrowColor #4A5568
+skinparam sequenceArrowThickness 1.2
+skinparam sequenceLifeLineBorderColor #A0AEC0
+skinparam sequenceGroupBorderColor #4A5568
+skinparam sequenceGroupHeaderFontColor #2D3748
+skinparam sequenceGroupBodyBackgroundColor #F7FAFC
+skinparam participantBorderColor #4A5568
+skinparam participantBackgroundColor #F7FAFC
+skinparam participantFontColor #2D3748
+skinparam actorBorderColor #4A5568
+skinparam actorBackgroundColor #FFFFFF
+skinparam actorFontColor #2D3748
+skinparam noteBackgroundColor #FFFBEA
+skinparam noteBorderColor #B7791F
+skinparam noteFontColor #744210
+skinparam sequenceDividerBackgroundColor #EDF2F7
+skinparam sequenceDividerBorderColor #4A5568
+skinparam sequenceDividerFontColor #2D3748
+autonumber
+
+participant "支付平台" as PAY
+participant "API 网关" as GW
+participant "M6\n支付与退款" as M6
+participant "M5\n预订与订单" as M5
+database "MySQL" as DB
+
+PAY -> GW : 支付结果回调（订单号、支付单号、金额）
+
+== ① 先验签、再判重 ==
+GW -> GW : 验签不通过 → 拒绝，不落状态
+GW -> M6 : 转发回调
+M6 -> DB : SELECT 支付记录 WHERE pay_no = ?
+
+alt 已处理过
+  DB --> M6 : 命中
+  M6 --> GW : 幂等命中
+  GW --> PAY : 200 OK
+else 首次到达
+  DB --> M6 : 无记录
+end
+
+== ② 按订单此刻的状态决定落点 ==
+M6 -> M5 : 查订单状态
+M5 -> DB : SELECT status WHERE order_no = ?
+DB --> M5 : 待支付 / 已取消 / 无记录
+M5 --> M6 : 返回状态
+
+alt 待支付：正常生效
+  M6 -> M6 : 金额比对一致
+  M5 -> DB : UPDATE 置已确认 WHERE 状态 = 待支付
+  DB --> M5 : 影响 1 行
+  M5 -> M5 : 库存保持已扣状态
+  M6 -> DB : 落支付记录（pay_no 唯一）
+  M6 --> GW : 处理成功
+  GW --> PAY : 200 OK
+
+else 已取消：超时已释放库存
+  M5 --> M6 : 订单已取消
+  M6 -> M6 : 不恢复订单，库存可能已被买走
+  M6 -> PAY : 发起原路退款
+  M6 -> DB : 落退款单，关联原支付单号
+  M6 --> GW : 已转退款
+  GW --> PAY : 200 OK
+
+else 无记录：落单失败
+  M6 -> DB : 挂入待对账队列
+  M6 --> GW : 已登记
+  GW --> PAY : 200 OK
+end
+
+legend bottom left
+  回调以支付平台结果为准，但任何一支都不允许「已扣款而无对应订单」（REQ-028）
+  已取消订单不再接受回调，只能退款——否则会卖出一间已不存在的房（REQ-020）
+  超时任务与回调改同一行且都带「状态 = 待支付」条件，先改成的生效，另一方影响 0 行
+end legend
+@enduml

@@ -1,0 +1,207 @@
+% ==================== 五、UML 建模 ====================
+\section{UML 建模}
+
+\subsection{图的选取与分类}
+
+本次绘制 16 张 PlantUML 图，包含结构图、行为图和交互图。各图用途列于下表。
+
+\begin{table}[H]
+\centering
+\caption{UML 图清单}\label{tab:uml_list}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{0.6cm}L{4.5cm}L{1.6cm}X@{}}
+\toprule
+\# & 图名 & 类别 & 设计内容 \\
+\midrule
+1 & UML 类图 & 结构 & 领域模型 24 个类与它们的关系，是全系统数据形状的来源 \\
+2 & UML 包图 & 结构 & 四层结构与十个领域包，约束依赖方向 \\
+3 & UML 组件图 & 结构 & 十个模块的调用与订阅，回答「模块之间怎么协作」 \\
+4 & UML 部署图 & 结构 & 应用、缓存、数据库与外部系统的物理分布 \\
+5 & UML 用例图·顾客端 & 行为 & 顾客能做什么，include / extend 关系 \\
+6 & UML 用例图·前台端 & 行为 & 前台的十个用例与「入住包含排房」 \\
+7 & UML 用例图·店长端 & 行为 & 店长的七个用例：设价、三类审批、派单、排班、看绩效 \\
+8 & UML 用例图·平台端 & 行为 & 平台地区负责人的六个用例 \\
+9 & UML 状态图·订单 & 行为 & 订单六态与超时、未到店两条时间分支 \\
+10 & UML 状态图·房间 & 行为 & 房间六态与维修旁路 \\
+11 & UML 活动图·下单与锁库存 & 行为 & 下单链路的三个判断点与回滚 \\
+12 & UML 活动图·支付回调与订单生效 & 行为 & 回调的验签、判重与状态分支 \\
+13 & UML 时序图·并发抢房 & 交互 & 两单抢最后一间，谁成功谁失败 \\
+14 & UML 时序图·支付回调 & 交互 & 三种订单状态下的三条落点 \\
+15 & UML 时序图·改价互斥 & 交互 & 改价与下单在同一格上互斥 \\
+16 & UML 时序图·超时释放与对账 & 交互 & 超时任务与每日对账两条定时链路 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+包图、组件图和部署图见第 3 章；本章展示其余 UML 图。
+
+\subsection{结构图：类图}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.94\textwidth]{../UML/UML类图.png}
+\caption{UML 类图：领域模型}
+\label{fig:class}
+\end{figure}
+
+类图包含 24 个类，覆盖账号、房源、价格、库存、订单、房态及审计等对象。日库存关联房型，按日期记录余量（REQ-013）；订单与订单明细采用组合关系，明细保存单价快照（REQ-023）。排房使用独立的占房记录关联订单与房间，并保存入住、离店日期。取消申请关联订单，退款单关联原支付单。
+
+\subsection{行为图：四张用例图}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.86\textwidth]{../UML/UML用例图_顾客端.png}
+\caption{UML 用例图：顾客端}
+\label{fig:uc_c}
+\end{figure}
+
+顾客端用例图包含十个用例（含两个 include 用例）。「提交取消申请」作为「取消订单」的条件扩展，仅适用于入住日 18:00 后需审批的取消操作（REQ-021）。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.66\textwidth]{../UML/UML用例图_前台端.png}
+\caption{UML 用例图：前台端}
+\label{fig:uc_f}
+\end{figure}
+
+前台端将「排房」列为「办理入住」的必要步骤，也允许提前单独排房（REQ-024）。超出价格区间时前台提交改价申请；店长下发维修工单后，前台负责执行并更新房态（REQ-025）。入住操作按三步设计（REQ-018）。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{../UML/UML用例图_店长端.png}
+\caption{UML 用例图：店长端}
+\label{fig:uc_s}
+\end{figure}
+
+店长端在价格区间内直接设价，超区间定价被拒绝并提示上下限（REQ-006）；前台提交的改价申请、取消申请与升级房型申请由店长审批，审批结果写入审计记录（REQ-014）。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{../UML/UML用例图_平台端.png}
+\caption{UML 用例图：平台端}
+\label{fig:uc_p}
+\end{figure}
+
+平台端包含查看片区汇总、审核门店绩效等六个用例。依据 REQ-007，平台地区负责人没有办理入住和修改房态的权限。
+
+\subsection{行为图：两台状态机}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.82\textwidth]{../UML/UML状态图_订单.png}
+\caption{UML 状态图：订单六态}
+\label{fig:st_order}
+\end{figure}
+
+订单状态图将入住日 22:00 的「已确认 $\rightarrow$ 未到店」和次日 12:00 的「未到店 $\rightarrow$ 已取消」标为定时任务触发；其他转换由支付、入住、退房或取消操作触发（REQ-022）。
+
+订单状态转换条件如下；表外转换均拒绝执行。
+
+\needspace{14cm}
+\begin{table}[H]
+\centering
+\caption{订单状态转换表}
+\tabfont
+\begin{tabularx}{\textwidth}{@{}L{2.1cm}L{2.1cm}L{3.3cm}X@{}}
+\toprule
+当前状态 & 目标状态 & 触发 & 说明 \\
+\midrule
+（新建） & 待支付 & 顾客提交 & 同事务扣库存 \\
+待支付 & 已确认 & 支付回调 & 条件更新，影响 1 行才继续 \\
+待支付 & 已取消 & 超时任务 & 15 分钟未支付，同事务释放库存 \\
+已确认 & 已入住 & 前台办理入住 & 与房间状态同步变更 \\
+已确认 & 已取消 & 自助 / 审批通过 & 18:00 为界（REQ-021） \\
+已确认 & 未到店 & 定时任务 & 入住日 22:00 \\
+未到店 & 已入住 & 前台办理入住 & 仅限次日 12:00 前 \\
+未到店 & 已取消 & 自助 / 审批通过 & 次日 12:00 前主动取消（REQ-021） \\
+未到店 & 已取消 & 定时任务 & 次日 12:00 仍未到店，不退房费 \\
+已入住 & 已退房 & 前台确认退房 & 与房间状态同步变更 \\
+\midrule
+\multicolumn{4}{@{}l}{\zihao{5}禁止：待支付 $\rightarrow$ 已入住 / 已退房 / 未到店；已确认 $\rightarrow$ 已退房；已入住 $\rightarrow$ 已取消 / 未到店；} \\
+\multicolumn{4}{@{}l}{\zihao{5}未到店 $\rightarrow$ 已确认 / 已退房；已退房、已取消为终态；任何状态不得回到待支付。} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.78\textwidth]{../UML/UML状态图_房间.png}
+\caption{UML 状态图：房间六态}
+\label{fig:st_room}
+\end{figure}
+
+房间可从「空闲」或「需打扫」转入「维修中」，修复后回到「空闲」。维修期间相应房型的逐日可售上限下调，维修房间不参与排房（REQ-024、REQ-034）。
+
+\subsection{行为图：两张活动图}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.62\textwidth]{../UML/UML活动图_下单与锁库存.png}
+\caption{UML 活动图：下单与锁库存}
+\label{fig:act1}
+\end{figure}
+
+下单活动图依次检查：
+
+\begin{enumerate}[leftmargin=3.2em]
+  \item 请求号已处理：返回原订单号，不重复建单（REQ-010）。
+  \item 300 ms 内未取得价格锁：提示稍后重试，不按旧价下单（REQ-012）。
+  \item 库存条件扣减失败：回滚事务并返回库存不足（REQ-011）。
+\end{enumerate}
+
+
+% 在进入本节前清空浮动队列，否则后续四张时序图会被推到一起、与说明文字脱节
+\clearpage
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.62\textwidth]{../UML/UML活动图_支付回调与订单生效.png}
+\caption{UML 活动图：支付回调与订单生效}
+\label{fig:act2}
+\end{figure}
+
+支付回调依次验签、判重、检查订单状态。待支付订单转为已确认；已取消订单发起退款；无对应订单的支付记录进入对账流程（REQ-028）。
+
+\subsection{交互图：四张时序图}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\textwidth]{../UML/UML时序图_并发抢房.png}
+\caption{UML 时序图：并发抢房}
+\label{fig:seq1}
+\end{figure}
+
+并发抢房时，M4 在统一受理入口为同房型请求原子赋序，按序派发；前一请求完成后才处理下一请求。图中 RA 先于 RB 受理，因此先尝试扣减最后一间房。库存条件更新仍由 MySQL 执行，防止超卖；扣减失败的请求不创建订单或支付单（REQ-011）。这里的“收到提交”以受理入口赋序时刻为准，而非客户端点击时间。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.68\textwidth]{../UML/UML时序图_改价互斥.png}
+\caption{UML 时序图：改价与下单互斥}
+\label{fig:seq2}
+\end{figure}
+
+改价锁按「房型 $\times$ 日期」设置，覆盖读旧价、写新价和提交。等待超过 300 ms 时返回重试提示，不创建订单（REQ-012）。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.77\textwidth]{../UML/UML时序图_支付回调.png}
+\caption{UML 时序图：支付回调的三种落点}
+\label{fig:seq3}
+\end{figure}
+
+支付回调按订单状态分为三种处理：
+
+\begin{itemize}
+  \item \textbf{待支付}：正常生效，条件更新为已确认，落支付记录，库存保持已扣状态。
+  \item \textbf{已取消}：不恢复订单，发起原路退款。
+  \item \textbf{无记录}：记录到待对账队列，由每日对账补单或退款。
+\end{itemize}
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.72\textwidth]{../UML/UML时序图_超时释放与对账.png}
+\caption{UML 时序图：超时释放与每日对账}
+\label{fig:seq4}
+\end{figure}
+
+支付超时任务每分钟扫描一次，取消订单与释放库存在同一事务中执行；状态条件防止重复释放。每日对账发现已扣款但无订单时尝试补单；库存不足则退款，退款失败转人工处理并告警（REQ-020、REQ-028）。
