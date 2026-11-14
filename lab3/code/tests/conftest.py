@@ -17,6 +17,8 @@ from hotel.m04_inventory.service import InventoryService
 from hotel.m05_order.service import OrderService
 from hotel.m06_payment.service import PaymentService
 from hotel.m07_room.service import RoomService
+from hotel.m08_performance.service import PerformanceService
+from hotel.m09_audit.service import AuditService
 
 
 @pytest.fixture
@@ -70,6 +72,16 @@ def room_service(
     database: Database, clock: FakeClock, inventory_service: InventoryService
 ) -> RoomService:
     return RoomService(database, clock, inventory_service)
+
+
+@pytest.fixture
+def performance_service(database: Database, clock: FakeClock) -> PerformanceService:
+    return PerformanceService(database, clock)
+
+
+@pytest.fixture
+def audit_service(database: Database, clock: FakeClock) -> AuditService:
+    return AuditService(database, clock)
 
 
 @pytest.fixture

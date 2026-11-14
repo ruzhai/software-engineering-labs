@@ -190,7 +190,8 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         order_id TEXT NOT NULL UNIQUE REFERENCES orders(id),
         score INTEGER NOT NULL,
         content TEXT NOT NULL,
-        submitted_at TEXT NOT NULL
+        submitted_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'PUBLISHED'
     )""",
     """CREATE TABLE IF NOT EXISTS audit_log (
         id TEXT PRIMARY KEY,
@@ -203,6 +204,7 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         after_value TEXT,
         reason TEXT,
         source TEXT,
+        store_id TEXT,
         created_at TEXT NOT NULL
     )""",
     """CREATE TABLE IF NOT EXISTS deletion_request (
