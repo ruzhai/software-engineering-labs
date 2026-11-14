@@ -18,7 +18,9 @@ from hotel.m05_order.service import OrderService
 from hotel.m06_payment.service import PaymentService
 from hotel.m07_room.service import RoomService
 from hotel.m08_performance.service import PerformanceService
+from hotel.core.events import EventBus
 from hotel.m09_audit.service import AuditService
+from hotel.m10_notify.service import InMemoryChannel, NotificationService
 
 
 @pytest.fixture
@@ -82,6 +84,38 @@ def performance_service(database: Database, clock: FakeClock) -> PerformanceServ
 @pytest.fixture
 def audit_service(database: Database, clock: FakeClock) -> AuditService:
     return AuditService(database, clock)
+
+
+@pytest.fixture
+def channel() -> InMemoryChannel:
+    return InMemoryChannel()
+
+
+@pytest.fixture
+def notification_service(
+    database: Database, clock: FakeClock, channel: InMemoryChannel
+) -> NotificationService:
+    return NotificationService(database, clock, channel)
+
+
+@pytest.fixture
+def wired(
+    order_service: OrderService,
+    payment_service: PaymentService,
+    notification_service: NotificationService,
+) -> dict:
+    """把订单、支付与通知按事件接起来。"""
+    bus = EventBus()
+    notification_service.subscribe(bus)
+    order_service.attach_events(bus)
+    order_service.attach_payment(payment_service)
+    payment_service.attach_events(bus)
+    return {
+        "order": order_service,
+        "payment": payment_service,
+        "notify": notification_service,
+        "bus": bus,
+    }
 
 
 @pytest.fixture

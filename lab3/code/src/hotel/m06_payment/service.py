@@ -13,6 +13,7 @@ from hotel.core.audit import record_audit
 from hotel.core.clock import Clock
 from hotel.core.db import Database, UnitOfWork
 from hotel.core.errors import ConflictError, NotFound, PermissionDenied, ValidationError
+from hotel.core.events import make_order_event
 from hotel.core.ids import new_id
 from hotel.m01_account.model import Role, Session
 from hotel.m04_inventory.service import InventoryService
@@ -39,6 +40,14 @@ class PaymentService:
         self._db = database
         self._clock = clock
         self._inventory = inventory_service
+        self._bus = None
+
+    def attach_events(self, bus) -> None:
+        self._bus = bus
+
+    def _publish(self, event) -> None:
+        if self._bus is not None and event is not None:
+            self._bus.publish(event)
 
     # ---------- 支付 ----------
 
@@ -88,9 +97,11 @@ class PaymentService:
             repo.mark_success(payment.id, txn_id, now)
             order = OrderRepository(conn).get_order(payment.order_id)
             assert order is not None
+            event = None
 
             if order.status is OrderStatus.PENDING_PAYMENT:
                 OrderRepository(conn).update_status(order.id, OrderStatus.CONFIRMED)
+                event = make_order_event(conn, "ORDER_CONFIRMED", order, now)
                 record_audit(
                     conn,
                     operator_id="system",
@@ -117,6 +128,7 @@ class PaymentService:
                     )
                 )
             updated = repo.get_by_id(payment.id)
+        self._publish(event)
         assert updated is not None
         return updated
 
@@ -187,6 +199,8 @@ class PaymentService:
                 after_value=OrderStatus.CANCELLED.value,
                 moment=now,
             )
+            event = make_order_event(conn, "ORDER_CANCELLED", order, now)
+        self._publish(event)
         return True
 
     def mark_no_show(self) -> int:
@@ -202,6 +216,7 @@ class PaymentService:
             ).fetchall()
         marked = 0
         for row in rows:
+            event = None
             with UnitOfWork(self._db) as conn:
                 repo = OrderRepository(conn)
                 order = repo.get_order(row["id"])
@@ -220,7 +235,9 @@ class PaymentService:
                     after_value=OrderStatus.NO_SHOW.value,
                     moment=max(now, cutoff),
                 )
-                marked += 1
+                event = make_order_event(conn, "ORDER_NO_SHOW", order, now)
+            self._publish(event)
+            marked += 1
         return marked
 
     def release_overdue_no_show(self) -> int:
@@ -230,6 +247,7 @@ class PaymentService:
             rows = conn.execute("SELECT id FROM orders WHERE status = 'NO_SHOW'").fetchall()
         released = 0
         for row in rows:
+            event = None
             with UnitOfWork(self._db) as conn:
                 repo = OrderRepository(conn)
                 order = repo.get_order(row["id"])
@@ -254,7 +272,9 @@ class PaymentService:
                     after_value=OrderStatus.CANCELLED.value,
                     moment=now,
                 )
-                released += 1
+                event = make_order_event(conn, "ORDER_CANCELLED", order, now)
+            self._publish(event)
+            released += 1
         return released
 
     # ---------- 对账 ----------

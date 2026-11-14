@@ -16,6 +16,7 @@ from hotel.core.audit import record_audit
 from hotel.core.clock import Clock
 from hotel.core.db import Database, UnitOfWork
 from hotel.core.errors import ConflictError, NotFound, PermissionDenied, ValidationError
+from hotel.core.events import make_order_event
 from hotel.core.ids import new_id
 from hotel.core.locks import acquire_all
 from hotel.m01_account.model import Role, Session
@@ -51,10 +52,14 @@ class OrderService:
         self._clock = clock
         self._inventory = inventory_service
         self._payment = None
+        self._bus = None
 
     def attach_payment(self, payment_service) -> None:
         """支付模块建好后注入，取消订单时用它发起退款。"""
         self._payment = payment_service
+
+    def attach_events(self, bus) -> None:
+        self._bus = bus
 
     # ---------- 下单 ----------
 
@@ -181,6 +186,9 @@ class OrderService:
             )
             if self._payment is not None:
                 self._payment.refund_for_cancelled_order(conn, order)
+            event = make_order_event(conn, "ORDER_CANCELLED", order, self._clock.now())
+        if self._bus is not None:
+            self._bus.publish(event)
         return self.get_order(actor, order_id)
 
     def request_cancel(self, actor: Session, order_id: str, reason: str) -> CancelRequest:
@@ -244,6 +252,9 @@ class OrderService:
             )
             if self._payment is not None:
                 self._payment.refund_for_cancelled_order(conn, order)
+            event = make_order_event(conn, "ORDER_CANCELLED", order, self._clock.now())
+        if self._bus is not None:
+            self._bus.publish(event)
         return self.get_order(actor, order.id)
 
     def reject_cancel_request(self, actor: Session, request_id: str) -> None:
