@@ -102,6 +102,12 @@ class StoreRepository:
         row = self.conn.execute("SELECT * FROM room_type WHERE id = ?", (room_type_id,)).fetchone()
         return _to_room_type(row) if row else None
 
+    def list_room_types_of_store(self, store_id: str) -> list[RoomType]:
+        rows = self.conn.execute(
+            "SELECT * FROM room_type WHERE store_id = ? ORDER BY name", (store_id,)
+        ).fetchall()
+        return [_to_room_type(row) for row in rows]
+
     def set_listed(self, room_type_id: str, listed: bool) -> None:
         self.conn.execute(
             "UPDATE room_type SET is_listed = ? WHERE id = ?", (int(listed), room_type_id)

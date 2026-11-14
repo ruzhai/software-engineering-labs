@@ -47,4 +47,6 @@ disable = [
     "missing-class-docstring",
     "fixme",
     "duplicate-code",
+    "too-many-ancestors",
+    "cyclic-import",
 ]

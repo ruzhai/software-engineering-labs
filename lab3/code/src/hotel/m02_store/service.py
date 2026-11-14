@@ -139,6 +139,10 @@ class StoreService:
             raise ConflictError("房号已存在", field="room_no") from exc
         return rooms
 
+    def list_room_types_of_store(self, store_id: str) -> list[RoomType]:
+        with UnitOfWork(self._db) as conn:
+            return StoreRepository(conn).list_room_types_of_store(store_id)
+
     def list_rooms(self, room_type_id: str) -> list[Room]:
         with UnitOfWork(self._db) as conn:
             return StoreRepository(conn).list_rooms(room_type_id)
