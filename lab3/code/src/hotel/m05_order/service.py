@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import random
 import sqlite3
+import threading
 from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 
@@ -16,6 +17,7 @@ from hotel.core.clock import Clock
 from hotel.core.db import Database, UnitOfWork
 from hotel.core.errors import ConflictError, NotFound, PermissionDenied, ValidationError
 from hotel.core.ids import new_id
+from hotel.core.locks import acquire_all
 from hotel.m01_account.model import Role, Session
 from hotel.m02_store.model import StoreStatus
 from hotel.m02_store.repository import StoreRepository
@@ -76,42 +78,44 @@ class OrderService:
         merged = self._merge(items)
 
         try:
-            with UnitOfWork(self._db) as conn:
-                repo = OrderRepository(conn)
-                if repo.request_seen(request_no):
-                    existing = repo.find_order_by_request_no(request_no)
-                    if existing is not None:
-                        return existing
-                    raise ConflictError("该请求号已处理过", field="request_no")
-                repo.record_request(request_no, self._clock.now())
+            # 价格锁在事务之前拿：与改价保持同一加锁顺序，避免互相等待。
+            with acquire_all(self._price_locks(merged, check_in, check_out), self._db.lock_timeout):
+                with UnitOfWork(self._db) as conn:
+                    repo = OrderRepository(conn)
+                    if repo.request_seen(request_no):
+                        existing = repo.find_order_by_request_no(request_no)
+                        if existing is not None:
+                            return existing
+                        raise ConflictError("该请求号已处理过", field="request_no")
+                    repo.record_request(request_no, self._clock.now())
 
-                store = StoreRepository(conn).get_store(store_id)
-                if store is None:
-                    raise NotFound("门店不存在", field="store_id")
-                if store.status is not StoreStatus.OPEN:
-                    raise ConflictError("门店已停业，暂不接受新订单")
+                    store = StoreRepository(conn).get_store(store_id)
+                    if store is None:
+                        raise NotFound("门店不存在", field="store_id")
+                    if store.status is not StoreStatus.OPEN:
+                        raise ConflictError("门店已停业，暂不接受新订单")
 
-                built = self._build_items(conn, store_id, merged, check_in, check_out)
-                self._reserve_all(conn, built)
+                    built = self._build_items(conn, store_id, merged, check_in, check_out)
+                    self._reserve_all(conn, built)
 
-                now = self._clock.now()
-                order = Order(
-                    id=new_id("order"),
-                    order_no=self._make_order_no(now),
-                    request_no=request_no,
-                    customer_id=actor.user_id,
-                    store_id=store_id,
-                    status=OrderStatus.PENDING_PAYMENT,
-                    total_cents=sum(item.subtotal_cents for item in built),
-                    pay_deadline=now + timedelta(minutes=PAY_TIMEOUT_MINUTES),
-                    check_in_date=check_in,
-                    check_out_date=check_out,
-                    room_id=None,
-                    created_at=now,
-                )
-                repo.insert_order(order)
-                for item in built:
-                    repo.insert_item(replace(item, order_id=order.id))
+                    now = self._clock.now()
+                    order = Order(
+                        id=new_id("order"),
+                        order_no=self._make_order_no(now),
+                        request_no=request_no,
+                        customer_id=actor.user_id,
+                        store_id=store_id,
+                        status=OrderStatus.PENDING_PAYMENT,
+                        total_cents=sum(item.subtotal_cents for item in built),
+                        pay_deadline=now + timedelta(minutes=PAY_TIMEOUT_MINUTES),
+                        check_in_date=check_in,
+                        check_out_date=check_out,
+                        room_id=None,
+                        created_at=now,
+                    )
+                    repo.insert_order(order)
+                    for item in built:
+                        repo.insert_item(replace(item, order_id=order.id))
         except sqlite3.IntegrityError as exc:
             # 并发提交同一请求号：另一个线程先落单，这里返回那一单。
             with UnitOfWork(self._db) as conn:
@@ -272,25 +276,26 @@ class OrderService:
         if not items:
             raise ValidationError("至少选择一个房型", field="items")
         merged = self._merge(items)
-        with UnitOfWork(self._db) as conn:
-            repo = OrderRepository(conn)
-            order = repo.get_order(order_id)
-            if order is None:
-                raise NotFound("订单不存在", field="order_id")
-            self._check_scope(conn, actor, order)
-            if order.status is not OrderStatus.CONFIRMED:
-                raise ConflictError("只有已确认且未入住的订单可以修改", field="status")
+        with acquire_all(self._price_locks(merged, check_in, check_out), self._db.lock_timeout):
+            with UnitOfWork(self._db) as conn:
+                repo = OrderRepository(conn)
+                order = repo.get_order(order_id)
+                if order is None:
+                    raise NotFound("订单不存在", field="order_id")
+                self._check_scope(conn, actor, order)
+                if order.status is not OrderStatus.CONFIRMED:
+                    raise ConflictError("只有已确认且未入住的订单可以修改", field="status")
 
-            # 先释放旧占用再占新日期：同一次事务里，新日期不够就整体回滚。
-            self._release_all(conn, order.items)
-            built = self._build_items(conn, order.store_id, merged, check_in, check_out)
-            self._reserve_all(conn, built)
+                # 先释放旧占用再占新日期：同一次事务里，新日期不够就整体回滚。
+                self._release_all(conn, order.items)
+                built = self._build_items(conn, order.store_id, merged, check_in, check_out)
+                self._reserve_all(conn, built)
 
-            repo.delete_items(order_id)
-            for item in built:
-                repo.insert_item(replace(item, order_id=order_id))
-            repo.set_dates(order_id, check_in, check_out)
-            repo.set_total(order_id, sum(item.subtotal_cents for item in built))
+                repo.delete_items(order_id)
+                for item in built:
+                    repo.insert_item(replace(item, order_id=order_id))
+                repo.set_dates(order_id, check_in, check_out)
+                repo.set_total(order_id, sum(item.subtotal_cents for item in built))
         return self.get_order(actor, order_id)
 
     # ---------- 状态推进（供 M7 使用） ----------
@@ -320,6 +325,15 @@ class OrderService:
             raise ValidationError("离店日期必须晚于入住日期", field="check_out")
         if check_in < self._clock.today():
             raise ValidationError("入住日期不能早于今天", field="check_in")
+
+    def _price_locks(
+        self, merged: list[RoomRequest], check_in: date, check_out: date
+    ) -> list[threading.Lock]:
+        nights = [
+            date.fromordinal(check_in.toordinal() + offset)
+            for offset in range((check_out - check_in).days)
+        ]
+        return self._db.price_locks_for([item.room_type_id for item in merged], nights)
 
     @staticmethod
     def _merge(items: list[RoomRequest]) -> list[RoomRequest]:

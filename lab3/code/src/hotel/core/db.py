@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
+from datetime import date
 from pathlib import Path
 from types import TracebackType
 
@@ -20,6 +22,18 @@ class Database:
 
     def __init__(self, path: str | Path) -> None:
         self.path = str(path)
+        self.lock_timeout = 2.0
+        self._price_locks: dict[tuple[str, str], threading.Lock] = {}
+        self._locks_guard = threading.Lock()
+
+    def price_lock(self, room_type_id: str, on_date: date) -> threading.Lock:
+        key = (room_type_id, on_date.isoformat())
+        with self._locks_guard:
+            return self._price_locks.setdefault(key, threading.Lock())
+
+    def price_locks_for(self, room_type_ids: list[str], dates: list[date]) -> list[threading.Lock]:
+        keys = sorted({(room_type_id, day) for room_type_id in room_type_ids for day in dates})
+        return [self.price_lock(room_type_id, day) for room_type_id, day in keys]
 
     def connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path, timeout=10.0, check_same_thread=False)
