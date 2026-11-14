@@ -11,6 +11,8 @@ from hotel.core.clock import FakeClock
 from hotel.core.db import Database
 from hotel.m01_account.service import AccountService
 from hotel.m02_store.service import StoreService
+from hotel.m03_pricing.service import PricingService
+from hotel.m04_inventory.service import InventoryService
 
 
 @pytest.fixture
@@ -33,3 +35,13 @@ def store_service(database: Database) -> StoreService:
 @pytest.fixture
 def account_service(database: Database, clock: FakeClock) -> AccountService:
     return AccountService(database, clock)
+
+
+@pytest.fixture
+def pricing_service(database: Database) -> PricingService:
+    return PricingService(database)
+
+
+@pytest.fixture
+def inventory_service(database: Database) -> InventoryService:
+    return InventoryService(database)
