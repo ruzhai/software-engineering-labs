@@ -1,0 +1,83 @@
+@startuml UML时序图_并发抢房
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam dpi 250
+skinparam sequenceArrowColor #4A5568
+skinparam sequenceArrowThickness 1.2
+skinparam sequenceLifeLineBorderColor #A0AEC0
+skinparam sequenceGroupBorderColor #4A5568
+skinparam sequenceGroupHeaderFontColor #2D3748
+skinparam sequenceGroupBodyBackgroundColor #F7FAFC
+skinparam participantBorderColor #4A5568
+skinparam participantBackgroundColor #F7FAFC
+skinparam participantFontColor #2D3748
+skinparam actorBorderColor #4A5568
+skinparam actorBackgroundColor #FFFFFF
+skinparam actorFontColor #2D3748
+skinparam noteBackgroundColor #FFFBEA
+skinparam noteBorderColor #B7791F
+skinparam noteFontColor #744210
+skinparam sequenceDividerBackgroundColor #EDF2F7
+skinparam sequenceDividerBorderColor #4A5568
+skinparam sequenceDividerFontColor #2D3748
+autonumber
+
+actor "顾客 A" as UA
+actor "顾客 B" as UB
+participant "API 网关" as GW
+participant "M4\n同房型请求队列" as Q
+participant "M5\n预订与订单" as M5
+participant "M4\n库存" as M4
+database "MySQL" as DB
+
+par 同一房型、同一晚，仅剩 1 间，两单并发到达
+  UA -> GW : 提交订单 RA
+else
+  UB -> GW : 提交订单 RB
+end
+
+GW -> GW : 幂等键校验：RA、RB 均首次
+GW -> Q : 受理 RA，原子赋序号 ①
+GW -> Q : 受理 RB，原子赋序号 ②
+note over GW, Q
+  以统一受理入口的赋序为“服务端收到提交”的次序。
+  同一房型按序派发；后序请求等待前序请求完成。
+end note
+
+== ① 队列先派发 RA ==
+Q -> M5 : 派发 RA
+M5 -> M4 : 扣减库存
+M4 -> DB : 条件更新 RA
+DB --> M4 : 影响 1 行
+M4 --> M5 : 扣减成功
+M5 -> M5 : 落单 RA（待支付，与扣减同事务提交）
+M5 --> Q : 订单 RA 已创建，事务结束
+Q --> GW : 返回 RA 结果
+GW --> UA : 返回订单，等待「去支付」
+
+== ② RA 完成后才派发 RB ==
+Q -> M5 : 派发 RB
+M5 -> M4 : 扣减库存（同一晚次）
+M4 -> DB : 条件更新 RB
+DB --> M4 : 影响 0 行
+M4 --> M5 : 库存不足
+M5 -> M5 : 整单回滚，不落单
+M5 --> Q : 已售罄
+Q --> GW : 返回 RB 结果
+GW --> UB : 未产生订单
+
+note over M4, DB
+  UPDATE inventory SET sold = sold + 1
+  WHERE room_type = ? AND date = ?
+    AND sold + 1 <= online_limit
+  影响 0 行即抢房失败；多晚订单任一晚失败则整单回滚
+end note
+
+legend bottom left
+  幂等键（REQ-010）：同一 X-Request-Id 只落一单，重放请求直接返回"订单已提交"
+  支付单不在下单时创建：顾客点击「去支付」后由 M5 调 M6 创建（见决策四）
+  库存只信 MySQL 条件更新，Redis 不承担计数（避免双写）
+  队列决定同房型的处理顺序；MySQL 条件更新仍负责防止超卖
+end legend
+@enduml

@@ -1,0 +1,56 @@
+@startuml UML活动图_下单与锁库存
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam dpi 250
+skinparam ArrowColor #4A5568
+skinparam ArrowFontColor #4A5568
+skinparam ArrowFontSize 11
+skinparam activity {
+  BackgroundColor #F7FAFC
+  BorderColor #4A5568
+  FontColor #2D3748
+  FontSize 13
+  BorderThickness 1.1
+  DiamondBackgroundColor #FFFFFF
+  DiamondBorderColor #4A5568
+  DiamondFontColor #2D3748
+}
+
+start
+:顾客提交下单请求（携带 X-Request-Id）;
+
+if (这个幂等键已经处理过？) then (是)
+  :返回首次的订单号;
+  stop
+else (否)
+endif
+
+:M4 同房型队列原子赋序，等待前序请求处理完毕;
+
+:取「房型 × 日期」的价格锁，读到当前房价并记入价格快照;
+
+if (300ms 内拿到锁？) then (否)
+  :返回「正在改价，请稍后重试」;
+  stop
+else (是)
+endif
+
+:同一事务：条件扣减库存 + 插入待支付订单;
+
+if (库存扣减影响 1 行？) then (否)
+  :回滚，返回「库存不足」;
+  stop
+else (是)
+endif
+
+:提交事务、释放价格锁，跳到支付页（15 分钟内不付即失效）;
+stop
+
+legend bottom left
+  请求先按同房型受理顺序排队，再进入下单事务（REQ-011）
+  三个判断都不靠「先查再改」：幂等键唯一、库存条件写在 WHERE 里，抢不到就是影响 0 行（REQ-011）
+  库存扣减与订单插入在同一事务，不会出现「扣了库存没建单」（REQ-028）
+  订单落库时存的是当下读到的房价快照，之后改价不影响这一单（REQ-023）
+end legend
+@enduml

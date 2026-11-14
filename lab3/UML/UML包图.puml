@@ -1,0 +1,87 @@
+@startuml UML包图
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam linetype ortho
+skinparam packageStyle folder
+skinparam ArrowColor #4A5568
+skinparam ArrowFontColor #4A5568
+skinparam ArrowFontSize 12
+skinparam PackageBackgroundColor #F7FAFC
+skinparam PackageBorderColor #4A5568
+skinparam PackageFontColor #2D3748
+skinparam PackageFontSize 13
+skinparam nodesep 45
+skinparam ranksep 70
+skinparam dpi 300
+
+package "表现层" as P {
+  package "顾客端 H5" as P1
+  package "前台工作台" as P2
+  package "店长后台" as P3
+  package "平台后台" as P4
+}
+
+package "接入层" as G {
+  package "API 网关　｜　统一鉴权　·　限流　·　幂等键校验　·　审计埋点" as P5
+}
+
+package "领域层" as D {
+  package "M1 账号与权限" as M1 #EDF2F7
+  package "M2 门店与房源" as M2
+  package "M3 定价" as M3
+  package "M4 库存" as M4
+  package "M5 预订与订单" as M5
+  package "M6 支付与退款" as M6
+  package "M7 房态与工单" as M7
+  package "M8 评价与绩效" as M8
+  package "M9 审计与保留" as M9 #EDF2F7
+  package "M10 通知" as M10 #EDF2F7
+}
+
+package "基础设施层" as I {
+  package "仓储实现" as I1
+  package "消息队列" as I2
+  package "Redis" as I3
+  package "支付网关" as I4
+  package "短信/推送" as I5
+  package "对象存储" as I6
+}
+
+' ---- 行内固定左右顺序 ----
+P1 -[hidden]right-> P2
+P2 -[hidden]right-> P3
+P3 -[hidden]right-> P4
+
+M1 -[hidden]right-> M2
+M2 -[hidden]right-> M3
+M3 -[hidden]right-> M4
+M4 -[hidden]right-> M5
+M6 -[hidden]right-> M7
+M7 -[hidden]right-> M8
+M8 -[hidden]right-> M9
+M9 -[hidden]right-> M10
+M1 -[hidden]down-> M6
+
+I1 -[hidden]right-> I2
+I2 -[hidden]right-> I3
+I3 -[hidden]right-> I4
+I4 -[hidden]right-> I5
+I5 -[hidden]right-> I6
+
+' ---- 层间堆叠 ----
+P4 -[hidden]down-> P5
+P5 -[hidden]down-> M1
+M6 -[hidden]down-> I1
+
+' ---- 真实依赖 ----
+P --> P5 : 四端统一接入
+P5 --> M3 : 调用领域服务
+I1 ..> M6
+
+legend bottom left
+  实线＝层间依赖；虚线＝依赖倒置（基础设施层实现领域层定义的仓储接口）
+  深底色＝横切模块，各业务模块均依赖
+  领域层内部的模块调用关系另见组件图
+end legend
+@enduml

@@ -1,0 +1,60 @@
+@startuml UML组件图
+skinparam defaultFontName "Microsoft YaHei"
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam linetype ortho
+skinparam ArrowColor #4A5568
+skinparam ArrowFontColor #4A5568
+skinparam ArrowFontSize 12
+skinparam ComponentBackgroundColor #F7FAFC
+skinparam ComponentBorderColor #4A5568
+skinparam ComponentFontSize 13
+skinparam PackageBackgroundColor #FAFAFA
+skinparam PackageBorderColor #A0AEC0
+skinparam PackageFontColor #2D3748
+skinparam dpi 300
+skinparam nodesep 70
+skinparam ranksep 80
+skinparam defaultTextAlignment center
+
+package "业务模块" as BM {
+  component "M7\n房态与工单" as M7
+  component "M8\n评价与绩效" as M8
+  component "M5\n预订与订单" as M5
+  component "M6\n支付与退款" as M6
+  component "M4\n库存" as M4
+  component "M3\n定价" as M3
+  component "M10\n通知" as M10
+  component "M2\n门店与房源" as M2
+}
+
+package "公共支撑" as PS {
+  component "M1\n账号与权限" as M1
+  component "M9\n审计与数据保留" as M9
+}
+
+M7 -[hidden]right-> M8
+M6 -[hidden]right-> M4
+M4 -[hidden]right-> M3
+M3 -[hidden]right-> M10
+
+M8 --> M5 : 校验订单已退房
+M7 --> M5 : 改订单状态
+M5 --> M6 : 创建支付单
+M5 --> M4 : 预占 / 释放库存
+M5 --> M3 : 取价
+M5 ..> M10 : 订单事件
+M6 ..> M5 : 支付成功
+M4 --> M2 : 房间总数与维修数
+M7 --> M2 : 查可用房间
+
+M2 -[hidden]down-> M1
+BM --> PS
+
+legend bottom left
+  实线＝调用依赖；虚线＝事件流向（发布者指向订阅者，仅示意主链路）
+  M1、M9 为横切模块，各业务模块均依赖，合并为一根箭头
+  M6 的支付成功事件由 M5 订阅；M10 订阅 M5 / M6 / M7 的业务事件
+end legend
+@enduml

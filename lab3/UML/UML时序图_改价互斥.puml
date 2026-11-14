@@ -1,0 +1,86 @@
+@startuml UML时序图_改价互斥
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam dpi 250
+skinparam sequenceArrowColor #4A5568
+skinparam sequenceArrowThickness 1.2
+skinparam sequenceLifeLineBorderColor #A0AEC0
+skinparam sequenceGroupBorderColor #4A5568
+skinparam sequenceGroupHeaderFontColor #2D3748
+skinparam sequenceGroupBodyBackgroundColor #F7FAFC
+skinparam participantBorderColor #4A5568
+skinparam participantBackgroundColor #F7FAFC
+skinparam participantFontColor #2D3748
+skinparam actorBorderColor #4A5568
+skinparam actorBackgroundColor #FFFFFF
+skinparam actorFontColor #2D3748
+skinparam noteBackgroundColor #FFFBEA
+skinparam noteBorderColor #B7791F
+skinparam noteFontColor #744210
+skinparam sequenceDividerBackgroundColor #EDF2F7
+skinparam sequenceDividerBorderColor #4A5568
+skinparam sequenceDividerFontColor #2D3748
+autonumber
+
+actor "店长" as SHOP
+actor "顾客" as CUST
+participant "API 网关" as GW
+participant "M5\n预订与订单" as M5
+participant "M3\n定价" as M3
+participant "Redis\n价格锁" as RDS
+database "MySQL" as DB
+
+par 同一房型 × 同一天，改价与下单几乎同时发生
+  SHOP -> GW : 改价（房型 R、日期 D、新价 480）
+else
+  CUST -> GW : 下单（房型 R、日期 D）
+end
+
+== ① 改价先拿到「房型 R × 日期 D」这一格的锁 ==
+GW -> M3 : 改价 R、D、480
+M3 -> RDS : SETNX lock:price:R:D，TTL 300ms
+RDS --> M3 : 占锁成功
+M3 -> DB : SELECT 当前价 → 450
+
+GW -> M5 : 受理订单
+M5 -> M3 : 取价 R、D
+M3 -> RDS : 尝试占同一把锁
+RDS --> M3 : 已被占用，进入等待
+
+note over M5, RDS
+  下单只在这一格里等锁，不会读到半新半旧的价
+  锁的边界是一个房型 × 一天：不锁整张房型表，也不锁当天库存
+end note
+
+alt 校验通过（480 不低于成本下限、在平台下发区间内）
+  M3 -> DB : UPDATE price SET amount = 480
+  M3 -> DB : COMMIT
+else 校验失败
+  M3 -> DB : ROLLBACK
+  M3 -> M3 : 价格保持 450，本次改价作废
+end
+M3 -> RDS : DEL lock:price:R:D
+
+== ② 锁释放，下单拿到锁并读到新价（校验通过这一支） ==
+RDS --> M3 : 等待结束，占锁成功
+M3 -> DB : SELECT 当前价 → 480
+M3 -> RDS : DEL lock:price:R:D
+M3 --> M5 : 取价结果 480
+M5 -> DB : 写订单明细，价格快照 = 480
+M5 --> GW : 订单已创建（待支付）
+GW --> CUST : 跳转支付页
+
+alt 等锁超过 300ms（例如批量改价卡住）
+  RDS --> M3 : 等待超时
+  M3 --> M5 : 取价失败
+  M5 --> GW : 返回"系统繁忙，请重试"
+  GW --> CUST : 不落单；不静默使用旧价
+end
+
+legend bottom left
+  锁的边界是「一个房型 × 一天」一格；批量改价按房型逐个加锁，不整体阻塞（REQ-012）
+  锁的持有时间只覆盖「读旧价 → 写新价 → 提交」这一小段，毫秒级
+  订单明细存价格快照（REQ-023），此后改价不影响历史订单
+end legend
+@enduml
