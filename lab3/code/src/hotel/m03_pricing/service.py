@@ -83,6 +83,39 @@ class PricingService:
         assert price is not None
         return price
 
+    def set_prices(
+        self,
+        actor: Session,
+        *,
+        room_type_id: str,
+        start: date,
+        end: date,
+        price_cents: int,
+        source: PriceSource = PriceSource.MANAGER,
+    ) -> int:
+        """按日期区间批量改价，给店长的价格日历用。整批要么全生效、要么全不生效。"""
+        if actor.role is not Role.STORE_MANAGER:
+            raise PermissionDenied("只有店长能改价")
+        if end < start:
+            raise ValidationError("结束日期不能早于开始日期", field="end")
+        with UnitOfWork(self._db) as conn:
+            repo = PricingRepository(conn)
+            store_id = repo.store_of_room_type(room_type_id)
+            if store_id is None:
+                raise NotFound("房型不存在", field="room_type_id")
+            if store_id != actor.store_id:
+                raise PermissionDenied("只能修改本店房价")
+            days = (end - start).days + 1
+            for offset in range(days):
+                self._check_within_range(
+                    repo, store_id, date.fromordinal(start.toordinal() + offset), price_cents
+                )
+            for offset in range(days):
+                repo.upsert_price(
+                    room_type_id, date.fromordinal(start.toordinal() + offset), price_cents, source
+                )
+        return days
+
     def request_price_change(
         self,
         actor: Session,

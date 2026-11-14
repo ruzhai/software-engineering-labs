@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
 
 from hotel.core.clock import FakeClock
 from hotel.core.db import Database
+from hotel.m01_account.model import Role
 from hotel.m01_account.service import AccountService
 from hotel.m02_store.service import StoreService
 from hotel.m03_pricing.service import PricingService
 from hotel.m04_inventory.service import InventoryService
+from hotel.m05_order.service import OrderService
 
 
 @pytest.fixture
@@ -45,3 +47,88 @@ def pricing_service(database: Database) -> PricingService:
 @pytest.fixture
 def inventory_service(database: Database) -> InventoryService:
     return InventoryService(database)
+
+
+@pytest.fixture
+def order_service(
+    database: Database, clock: FakeClock, inventory_service: InventoryService
+) -> OrderService:
+    return OrderService(database, clock, inventory_service)
+
+
+@pytest.fixture
+def shop(
+    store_service: StoreService,
+    account_service: AccountService,
+    pricing_service: PricingService,
+) -> dict:
+    """一家营业中的门店：两个房型、15 间房、一周房价、四类账号。"""
+    area = store_service.create_area("南京片区")
+    store = store_service.create_store(area.id, "新街口店", "南京", "新街口")
+    room_type = store_service.create_room_type(store.id, "大床房", "大床", 2)
+    twin = store_service.create_room_type(store.id, "双床房", "双床", 2)
+    for index in range(10):
+        store_service.add_room(room_type.id, f"08{index:02d}")
+    for index in range(5):
+        store_service.add_room(twin.id, f"09{index:02d}")
+
+    account_service.bootstrap_staff(
+        name="片区负责人",
+        phone="13900000001",
+        password="secret1",
+        role=Role.AREA_MANAGER,
+        area_id=area.id,
+    )
+    account_service.bootstrap_staff(
+        name="店长",
+        phone="13900000002",
+        password="secret1",
+        role=Role.STORE_MANAGER,
+        store_id=store.id,
+    )
+    account_service.bootstrap_staff(
+        name="前台",
+        phone="13900000003",
+        password="secret1",
+        role=Role.FRONT_DESK,
+        store_id=store.id,
+    )
+    account_service.register_customer("张三", "13800000001", "secret1")
+
+    area_manager = account_service.login("13900000001", "secret1")
+    manager = account_service.login("13900000002", "secret1")
+    front = account_service.login("13900000003", "secret1")
+    customer = account_service.login("13800000001", "secret1")
+
+    pricing_service.set_price_range(
+        area_manager,
+        store_id=store.id,
+        effective_date=date(2026, 1, 1),
+        min_cents=20000,
+        max_cents=80000,
+    )
+    pricing_service.set_prices(
+        manager,
+        room_type_id=room_type.id,
+        start=date(2026, 11, 14),
+        end=date(2026, 11, 27),
+        price_cents=50000,
+    )
+    pricing_service.set_prices(
+        manager,
+        room_type_id=twin.id,
+        start=date(2026, 11, 14),
+        end=date(2026, 11, 27),
+        price_cents=60000,
+    )
+
+    return {
+        "area": area,
+        "store": store,
+        "room_type": room_type,
+        "twin": twin,
+        "area_manager": area_manager,
+        "manager": manager,
+        "front": front,
+        "customer": customer,
+    }
