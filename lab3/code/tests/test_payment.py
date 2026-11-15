@@ -172,3 +172,40 @@ def test_only_customer_can_pay(
 
     with pytest.raises(PermissionDenied):
         payment_service.create_payment(shop["front"], order.id)
+
+
+def test_second_payment_for_same_order_rejected(
+    shop: dict, order_service: OrderService, payment_service: PaymentService
+) -> None:
+    order = _place(shop, order_service, "pay-dup-create")
+    payment_service.create_payment(shop["customer"], order.id)
+
+    with pytest.raises(ConflictError):
+        payment_service.create_payment(shop["customer"], order.id)
+
+
+def test_gateway_double_charge_is_reconciled(
+    shop: dict,
+    order_service: OrderService,
+    payment_service: PaymentService,
+    clock: FakeClock,
+    database: Database,
+) -> None:
+    """网关侧重复扣款：两笔支付都成功时，第二笔记成对账差异。"""
+    order = _place(shop, order_service, "pay-dup-callback")
+    first = payment_service.create_payment(shop["customer"], order.id)
+    payment_service.pay(first.pay_no)
+
+    with database.connect() as conn:
+        conn.execute(
+            "INSERT INTO payment (id, pay_no, order_id, amount_cents, channel, status,"
+            " created_at) VALUES ('pmt_dup', 'pay_dup', ?, ?, 'ONLINE', 'PENDING', ?)",
+            (order.id, order.total_cents, clock.now().isoformat()),
+        )
+        conn.commit()
+
+    second = payment_service.handle_callback("pay_dup", "TXN-DUP", order.total_cents)
+    assert second.status is PaymentStatus.SUCCESS
+
+    records = payment_service.reconcile(clock.today())
+    assert any(record.diff_type == "DUPLICATE_PAYMENT" for record in records)

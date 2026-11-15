@@ -55,6 +55,21 @@ class PaymentRepository:
             (PaymentStatus.SUCCESS.value, txn_id, paid_at.isoformat(), payment_id),
         )
 
+    def has_active_payment(self, order_id: str) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM payment WHERE order_id = ? AND status IN ('PENDING', 'SUCCESS')"
+            " LIMIT 1",
+            (order_id,),
+        ).fetchone()
+        return row is not None
+
+    def count_successful(self, order_id: str) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM payment WHERE order_id = ? AND status = 'SUCCESS'",
+            (order_id,),
+        ).fetchone()
+        return int(row["n"])
+
     def successful_payment_of_order(self, order_id: str) -> Payment | None:
         row = self.conn.execute(
             "SELECT * FROM payment WHERE order_id = ? AND status = 'SUCCESS'"

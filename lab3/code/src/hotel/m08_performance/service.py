@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import date
 
+from hotel.core.auth import ensure_active
 from hotel.core.clock import Clock
 from hotel.core.db import Database, UnitOfWork
 from hotel.core.errors import ConflictError, NotFound, PermissionDenied, ValidationError
@@ -32,6 +33,7 @@ class PerformanceService:
         if not content.strip():
             raise ValidationError("评价内容不能为空", field="content")
         with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
             order = OrderRepository(conn).get_order(order_id)
             if order is None:
                 raise NotFound("订单不存在", field="order_id")
@@ -57,6 +59,7 @@ class PerformanceService:
         if actor.role not in (Role.STORE_MANAGER, Role.AREA_MANAGER):
             raise PermissionDenied("只有店长或片区负责人能审核评价")
         with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
             repo = ReviewRepository(conn)
             review = repo.get(review_id)
             if review is None:

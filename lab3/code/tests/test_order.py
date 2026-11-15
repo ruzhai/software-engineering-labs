@@ -195,3 +195,68 @@ def test_order_scope_is_enforced(
 def test_missing_order_raises(shop: dict, order_service: OrderService) -> None:
     with pytest.raises(NotFound):
         order_service.get_order(shop["customer"], "no-such-order")
+
+
+def test_walk_in_order_uses_offline_quota(
+    shop: dict, order_service: OrderService, inventory_service: InventoryService
+) -> None:
+    """REQ-033：前台开单从线下保留额度扣减，不占用线上库存。"""
+    for night in (CHECK_IN, date(2026, 11, 21)):
+        inventory_service.set_offline_reserved(
+            shop["manager"], room_type_id=shop["room_type"].id, on_date=night, reserved=3
+        )
+
+    order = order_service.create_walk_in_order(
+        shop["front"],
+        store_id=shop["store"].id,
+        customer_id=shop["customer"].user_id,
+        request_no="walkin-1",
+        items=[RoomRequest(shop["room_type"].id, 1)],
+        check_in=CHECK_IN,
+        check_out=CHECK_OUT,
+    )
+
+    assert order.status is OrderStatus.CONFIRMED
+    inventory = inventory_service.query(shop["room_type"].id, CHECK_IN)
+    assert inventory.offline_sold == 1
+    assert inventory.online_sold == 0
+
+
+def test_walk_in_order_rejected_without_offline_quota(
+    shop: dict, order_service: OrderService
+) -> None:
+    with pytest.raises(ConflictError):
+        order_service.create_walk_in_order(
+            shop["front"],
+            store_id=shop["store"].id,
+            customer_id=shop["customer"].user_id,
+            request_no="walkin-2",
+            items=[RoomRequest(shop["room_type"].id, 1)],
+            check_in=CHECK_IN,
+            check_out=CHECK_OUT,
+        )
+
+
+def test_no_show_order_can_be_cancelled_by_request(
+    shop: dict,
+    wired_order_service: OrderService,
+    payment_service,
+    clock: FakeClock,
+    database,
+) -> None:
+    """REQ-022：未到店期间顾客主动取消按 REQ-021 处理；REQ-021：不产生退款。"""
+    order = _order(shop, wired_order_service, request_no="no-show-cancel")
+    payment_service.pay(payment_service.create_payment(shop["customer"], order.id).pay_no)
+
+    clock.set(datetime(2026, 11, 20, 22, 5))
+    payment_service.mark_no_show()
+
+    clock.set(datetime(2026, 11, 20, 22, 30))
+    request = wired_order_service.request_cancel(shop["front"], order.id, "顾客确认不来了")
+    cancelled = wired_order_service.approve_cancel_request(shop["manager"], request.id)
+
+    assert cancelled.status is OrderStatus.CANCELLED
+    from hotel.m06_payment.repository import PaymentRepository
+
+    with database.connect() as conn:
+        assert PaymentRepository(conn).refund_of_order(order.id) is None

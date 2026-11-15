@@ -10,6 +10,7 @@ import sqlite3
 from datetime import date, datetime, time, timedelta
 
 from hotel.core.audit import record_audit
+from hotel.core.auth import ensure_active
 from hotel.core.clock import Clock
 from hotel.core.db import Database, UnitOfWork
 from hotel.core.errors import ConflictError, NotFound, PermissionDenied, ValidationError
@@ -55,6 +56,7 @@ class PaymentService:
         if actor.role is not Role.CUSTOMER:
             raise PermissionDenied("只有顾客能发起支付")
         with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
             order = OrderRepository(conn).get_order(order_id)
             if order is None:
                 raise NotFound("订单不存在", field="order_id")
@@ -62,6 +64,8 @@ class PaymentService:
                 raise PermissionDenied("只能支付自己的订单")
             if order.status is not OrderStatus.PENDING_PAYMENT:
                 raise ConflictError("订单当前状态不需要支付", field="status")
+            if PaymentRepository(conn).has_active_payment(order_id):
+                raise ConflictError("该订单已有支付单，请勿重复发起", field="order_id")
             payment = Payment(
                 id=new_id("pmt"),
                 pay_no=new_id("pay"),
@@ -98,6 +102,20 @@ class PaymentService:
             order = OrderRepository(conn).get_order(payment.order_id)
             assert order is not None
             event = None
+
+            if repo.count_successful(payment.order_id) > 1:
+                # 同一订单收到两笔成功支付：钱扣了两次，记对账差异交人工处理。
+                repo.insert_reconciliation(
+                    ReconciliationRecord(
+                        id=new_id("rec"),
+                        payment_id=payment.id,
+                        rec_date=now.date(),
+                        diff_type="DUPLICATE_PAYMENT",
+                        diff_cents=payment.amount_cents,
+                        resolution=None,
+                        status=ReconciliationStatus.OPEN,
+                    )
+                )
 
             if order.status is OrderStatus.PENDING_PAYMENT:
                 OrderRepository(conn).update_status(order.id, OrderStatus.CONFIRMED)

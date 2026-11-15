@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 
 from hotel.core.audit import record_audit
+from hotel.core.auth import ensure_active
 from hotel.core.clock import Clock
 from hotel.core.db import Database, UnitOfWork
 from hotel.core.errors import ConflictError, NotFound, PermissionDenied, ValidationError
@@ -86,6 +87,7 @@ class OrderService:
             # 价格锁在事务之前拿：与改价保持同一加锁顺序，避免互相等待。
             with acquire_all(self._price_locks(merged, check_in, check_out), self._db.lock_timeout):
                 with UnitOfWork(self._db) as conn:
+                    ensure_active(conn, actor)
                     repo = OrderRepository(conn)
                     if repo.request_seen(request_no):
                         existing = repo.find_order_by_request_no(request_no)
@@ -131,6 +133,76 @@ class OrderService:
 
         return self.get_order(actor, order.id)
 
+    def create_walk_in_order(
+        self,
+        actor: Session,
+        *,
+        store_id: str,
+        customer_id: str,
+        request_no: str,
+        items: list[RoomRequest],
+        check_in: date,
+        check_out: date,
+    ) -> Order:
+        """前台开单：从线下保留额度扣减，不占用线上库存（REQ-033）。
+
+        线下开单当场收款，所以订单直接落在已确认，不经过支付。
+        """
+        if actor.role is not Role.FRONT_DESK or actor.store_id != store_id:
+            raise PermissionDenied("只有本店前台能开单")
+        self._validate_stay(check_in, check_out)
+        if not request_no.strip():
+            raise ValidationError("请求号不能为空", field="request_no")
+        if not items:
+            raise ValidationError("至少选择一个房型", field="items")
+        merged = self._merge(items)
+
+        with acquire_all(self._price_locks(merged, check_in, check_out), self._db.lock_timeout):
+            with UnitOfWork(self._db) as conn:
+                ensure_active(conn, actor)
+                repo = OrderRepository(conn)
+                if repo.request_seen(request_no):
+                    existing = repo.find_order_by_request_no(request_no)
+                    if existing is not None:
+                        return existing
+                    raise ConflictError("该请求号已处理过", field="request_no")
+                repo.record_request(request_no, self._clock.now())
+
+                store = StoreRepository(conn).get_store(store_id)
+                if store is None:
+                    raise NotFound("门店不存在", field="store_id")
+                if store.status is not StoreStatus.OPEN:
+                    raise ConflictError("门店已停业，暂不接受新订单")
+
+                built = self._build_items(conn, store_id, merged, check_in, check_out)
+                for item in built:
+                    if not self._inventory.reserve_offline(
+                        conn, item.room_type_id, item.stay_date, item.qty
+                    ):
+                        raise ConflictError(
+                            f"{item.stay_date} 线下保留额度不足，请改为线上售卖", field="items"
+                        )
+
+                now = self._clock.now()
+                order = Order(
+                    id=new_id("order"),
+                    order_no=self._make_order_no(now),
+                    request_no=request_no,
+                    customer_id=customer_id,
+                    store_id=store_id,
+                    status=OrderStatus.CONFIRMED,
+                    total_cents=sum(item.subtotal_cents for item in built),
+                    pay_deadline=now,
+                    check_in_date=check_in,
+                    check_out_date=check_out,
+                    room_id=None,
+                    created_at=now,
+                )
+                repo.insert_order(order)
+                for item in built:
+                    repo.insert_item(replace(item, order_id=order.id))
+        return self.get_order(actor, order.id)
+
     # ---------- 查询 ----------
 
     def get_order(self, actor: Session, order_id: str) -> Order:
@@ -145,12 +217,14 @@ class OrderService:
         if actor.role is not Role.CUSTOMER:
             raise PermissionDenied("只有顾客能查看自己的订单")
         with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
             return OrderRepository(conn).list_by_customer(actor.user_id)
 
     def list_store_orders(self, actor: Session, store_id: str) -> list[Order]:
         if actor.role not in (Role.FRONT_DESK, Role.STORE_MANAGER) or actor.store_id != store_id:
             raise PermissionDenied("只能查看本店订单")
         with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
             return OrderRepository(conn).list_by_store(store_id)
 
     # ---------- 取消 ----------
@@ -162,7 +236,11 @@ class OrderService:
             if order is None:
                 raise NotFound("订单不存在", field="order_id")
             self._check_scope(conn, actor, order)
-            if order.status not in (OrderStatus.PENDING_PAYMENT, OrderStatus.CONFIRMED):
+            if order.status not in (
+                OrderStatus.PENDING_PAYMENT,
+                OrderStatus.CONFIRMED,
+                OrderStatus.NO_SHOW,
+            ):
                 raise ConflictError("当前状态下不能取消", field="status")
             if self._clock.now() >= self._cancel_deadline(order):
                 if actor.role is Role.CUSTOMER:
@@ -184,7 +262,8 @@ class OrderService:
                 after_value=OrderStatus.CANCELLED.value,
                 moment=self._clock.now(),
             )
-            if self._payment is not None:
+            # REQ-021：未到店订单取消不产生退款。
+            if self._payment is not None and order.status is not OrderStatus.NO_SHOW:
                 self._payment.refund_for_cancelled_order(conn, order)
             event = make_order_event(conn, "ORDER_CANCELLED", order, self._clock.now())
         if self._bus is not None:
@@ -202,7 +281,11 @@ class OrderService:
             if order is None:
                 raise NotFound("订单不存在", field="order_id")
             self._check_scope(conn, actor, order)
-            if order.status not in (OrderStatus.PENDING_PAYMENT, OrderStatus.CONFIRMED):
+            if order.status not in (
+                OrderStatus.PENDING_PAYMENT,
+                OrderStatus.CONFIRMED,
+                OrderStatus.NO_SHOW,
+            ):
                 raise ConflictError("当前状态下不能取消", field="status")
             if repo.pending_cancel_request(order_id) is not None:
                 raise ConflictError("该订单已有待审批的取消申请", field="order_id")
@@ -233,7 +316,11 @@ class OrderService:
                 raise PermissionDenied("只能审批本店的取消申请")
             if request.status is not CancelRequestStatus.PENDING:
                 raise ConflictError("该申请已处理过了", field="request_id")
-            if order.status not in (OrderStatus.PENDING_PAYMENT, OrderStatus.CONFIRMED):
+            if order.status not in (
+                OrderStatus.PENDING_PAYMENT,
+                OrderStatus.CONFIRMED,
+                OrderStatus.NO_SHOW,
+            ):
                 raise ConflictError("当前状态下不能取消", field="status")
             self._release_all(conn, order.items)
             repo.update_status(order.id, OrderStatus.CANCELLED)
@@ -250,7 +337,8 @@ class OrderService:
                 after_value=OrderStatus.CANCELLED.value,
                 moment=self._clock.now(),
             )
-            if self._payment is not None:
+            # REQ-021：未到店订单取消不产生退款。
+            if self._payment is not None and order.status is not OrderStatus.NO_SHOW:
                 self._payment.refund_for_cancelled_order(conn, order)
             event = make_order_event(conn, "ORDER_CANCELLED", order, self._clock.now())
         if self._bus is not None:
@@ -404,6 +492,7 @@ class OrderService:
             self._inventory.release_online(conn, item.room_type_id, item.stay_date, item.qty)
 
     def _check_scope(self, conn: sqlite3.Connection, actor: Session, order: Order) -> None:
+        ensure_active(conn, actor)
         if actor.role is Role.CUSTOMER:
             if order.customer_id != actor.user_id:
                 raise PermissionDenied("只能查看自己的订单")

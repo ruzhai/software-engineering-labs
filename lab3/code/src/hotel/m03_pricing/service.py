@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
+from hotel.core.auth import ensure_active
 from hotel.core.db import Database, UnitOfWork
 from hotel.core.errors import ConflictError, NotFound, PermissionDenied, ValidationError
 from hotel.core.locks import acquire_all
@@ -75,6 +76,7 @@ class PricingService:
         # 拿到锁并读到尚未生效的旧价（REQ-012 要求不静默使用旧价）。
         with acquire_all([self._db.price_lock(room_type_id, on_date)], self._db.lock_timeout):
             with UnitOfWork(self._db) as conn:
+                ensure_active(conn, actor)
                 repo = PricingRepository(conn)
                 store_id = repo.store_of_room_type(room_type_id)
                 if store_id is None:
@@ -107,6 +109,7 @@ class PricingService:
         locks = [self._db.price_lock(room_type_id, day) for day in day_list]
         with acquire_all(locks, self._db.lock_timeout):
             with UnitOfWork(self._db) as conn:
+                ensure_active(conn, actor)
                 repo = PricingRepository(conn)
                 store_id = repo.store_of_room_type(room_type_id)
                 if store_id is None:
@@ -131,6 +134,7 @@ class PricingService:
         if actor.role is not Role.FRONT_DESK:
             raise PermissionDenied("只有前台能提交改价申请")
         with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
             repo = PricingRepository(conn)
             store_id = repo.store_of_room_type(room_type_id)
             if store_id is None:
@@ -176,6 +180,7 @@ class PricingService:
         lock = self._db.price_lock(request.room_type_id, request.price_date)
         with acquire_all([lock], self._db.lock_timeout):
             with UnitOfWork(self._db) as conn:
+                ensure_active(conn, actor)
                 repo = PricingRepository(conn)
                 current = repo.get_request(request_id)
                 assert current is not None

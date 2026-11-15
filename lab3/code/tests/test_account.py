@@ -163,3 +163,23 @@ def test_customer_cannot_access_store_data(account_service: AccountService, scen
 
     with pytest.raises(PermissionDenied):
         account_service.list_staff_of_store(customer, scene["store_a"].id)
+
+
+def test_area_manager_sees_only_store_managers(
+    account_service: AccountService, scene: dict
+) -> None:
+    """REQ-026：片区负责人可看各店店长，不查看前台个人明细。"""
+    staff = account_service.list_staff_of_store(scene["area_manager"], scene["store_a"].id)
+
+    assert [user.role for user in staff] == [Role.STORE_MANAGER]
+
+
+def test_disabled_session_loses_access_immediately(
+    account_service: AccountService, scene: dict
+) -> None:
+    """REQ-001：账号停用后，已经登录的会话也要立刻失效。"""
+    front = scene["front_a"]
+    account_service.disable_user(scene["manager_a"], front.user_id)
+
+    with pytest.raises(PermissionDenied):
+        account_service.list_staff_of_store(front, scene["store_a"].id)

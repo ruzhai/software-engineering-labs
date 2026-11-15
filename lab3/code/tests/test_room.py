@@ -216,3 +216,29 @@ def test_assigned_rooms_are_tracked(
     room_service.assign_room(shop["front"], order.id, room_id)
 
     assert room_service.assigned_rooms(order.id) == [room_id]
+
+
+def test_multi_room_order_needs_every_room_assigned(
+    shop: dict,
+    store_service: StoreService,
+    order_service: OrderService,
+    payment_service: PaymentService,
+    room_service: RoomService,
+) -> None:
+    order = order_service.create_order(
+        shop["customer"],
+        store_id=shop["store"].id,
+        request_no="room-multi",
+        items=[RoomRequest(shop["room_type"].id, 2)],
+        check_in=CHECK_IN,
+        check_out=CHECK_OUT,
+    )
+    payment_service.pay(payment_service.create_payment(shop["customer"], order.id).pay_no)
+    rooms = store_service.list_rooms(shop["room_type"].id)
+
+    room_service.assign_room(shop["front"], order.id, rooms[0].id)
+    with pytest.raises(ConflictError):
+        room_service.check_in(shop["front"], order.id)
+
+    room_service.assign_room(shop["front"], order.id, rooms[1].id)
+    assert room_service.check_in(shop["front"], order.id).status is OrderStatus.CHECKED_IN

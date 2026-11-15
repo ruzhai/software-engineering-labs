@@ -10,6 +10,7 @@ import sqlite3
 from datetime import date
 
 from hotel.core.audit import record_audit
+from hotel.core.auth import ensure_active
 from hotel.core.clock import Clock
 from hotel.core.db import Database, UnitOfWork
 from hotel.core.errors import ConflictError, NotFound, PermissionDenied, ValidationError
@@ -48,6 +49,7 @@ class AuditService:
         if not reason.strip():
             raise ValidationError("请填写删除原因", field="reason")
         with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
             row = conn.execute(
                 "SELECT area_id FROM store WHERE id = ?", (actor.store_id,)
             ).fetchone()
@@ -70,6 +72,7 @@ class AuditService:
         if actor.role is not Role.AREA_MANAGER:
             raise PermissionDenied("只有片区负责人能审批删除申请")
         with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
             repo = AuditRepository(conn)
             request = repo.get_deletion_request(request_id)
             if request is None:
@@ -106,6 +109,7 @@ class AuditService:
         if actor.role is not Role.AREA_MANAGER:
             raise PermissionDenied("只有片区负责人能审批删除申请")
         with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
             repo = AuditRepository(conn)
             request = repo.get_deletion_request(request_id)
             if request is None:

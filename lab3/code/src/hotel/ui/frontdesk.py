@@ -158,20 +158,23 @@ class CheckInScreen(Screen):
             messagebox.showinfo("提示", "订单没有明细")
             return
         room_type_id = order.items[0].room_type_id
-        free_room = next(
-            (
-                room
-                for room in self.services.store.list_rooms(room_type_id)
-                if room.status is RoomStatus.FREE
-            ),
-            None,
-        )
-        if free_room is None:
-            messagebox.showwarning("没有可用房间", "该房型暂时没有空闲房间，请先处理房态")
+        required = sum(item.qty for item in order.items if item.stay_date == order.check_in_date)
+        free_rooms = [
+            room
+            for room in self.services.store.list_rooms(room_type_id)
+            if room.status is RoomStatus.FREE
+        ]
+        if len(free_rooms) < required:
+            messagebox.showwarning(
+                "没有可用房间",
+                f"这笔订单需要 {required} 间空闲房间，当前只有 {len(free_rooms)} 间",
+            )
             return
-        self.services.room.assign_room(self.app.session, order.id, free_room.id)
+        chosen = free_rooms[:required]
+        for room in chosen:
+            self.services.room.assign_room(self.app.session, order.id, room.id)
         self.services.room.check_in(self.app.session, order.id)
-        messagebox.showinfo("入住成功", f"已分配到房间 {free_room.room_no}")
+        messagebox.showinfo("入住成功", "已分配房间：" + "、".join(r.room_no for r in chosen))
         self.refresh()
 
 

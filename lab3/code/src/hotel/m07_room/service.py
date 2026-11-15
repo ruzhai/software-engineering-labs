@@ -10,6 +10,7 @@ import sqlite3
 from datetime import date, datetime, time, timedelta
 
 from hotel.core.audit import record_audit
+from hotel.core.auth import ensure_active
 from hotel.core.clock import Clock
 from hotel.core.db import Database, UnitOfWork
 from hotel.core.errors import ConflictError, NotFound, PermissionDenied, ValidationError
@@ -355,10 +356,11 @@ class RoomService:
             raise NotFound("订单不存在", field="order_id")
         return order
 
-    @staticmethod
-    def _require_front_desk(actor: Session) -> None:
+    def _require_front_desk(self, actor: Session) -> None:
         if actor.role is not Role.FRONT_DESK:
             raise PermissionDenied("只有前台能操作房态")
+        with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
 
 
 def order_nights(order: Order) -> list[date]:

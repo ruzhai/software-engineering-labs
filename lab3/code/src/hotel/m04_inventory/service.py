@@ -9,6 +9,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
+from hotel.core.auth import ensure_active
 from hotel.core.db import Database, UnitOfWork
 from hotel.core.errors import NotFound, PermissionDenied, ValidationError
 from hotel.m01_account.model import Role, Session
@@ -58,6 +59,7 @@ class InventoryService:
         if reserved < 0:
             raise ValidationError("保留额度不能为负", field="reserved")
         with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
             repo = InventoryRepository(conn)
             if repo.store_of_room_type(room_type_id) != actor.store_id:
                 raise PermissionDenied("只能设置本店房型的保留额度")

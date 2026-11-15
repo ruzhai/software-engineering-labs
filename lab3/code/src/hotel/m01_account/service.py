@@ -12,6 +12,7 @@ import re
 import sqlite3
 from datetime import timedelta
 
+from hotel.core.auth import ensure_active
 from hotel.core.clock import Clock
 from hotel.core.db import Database, UnitOfWork
 from hotel.core.errors import (
@@ -119,6 +120,7 @@ class AccountService:
         user_id = new_id("user")
         try:
             with UnitOfWork(self._db) as conn:
+                ensure_active(conn, actor)
                 repo = UserRepository(conn)
                 if repo.get_by_phone(phone) is not None:
                     raise ConflictError("该手机号已注册", field="phone")
@@ -220,11 +222,25 @@ class AccountService:
         else:
             raise PermissionDenied("当前角色不能停用账号")
         with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
             UserRepository(conn).set_status(user_id, UserStatus.DISABLED)
 
     def list_staff_of_store(self, actor: Session, store_id: str) -> list[User]:
         self.require_store(actor, store_id)
         with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
+            if actor.role is Role.AREA_MANAGER:
+                # REQ-026：片区负责人只看各店店长，不查看前台个人明细。
+                store = conn.execute(
+                    "SELECT area_id FROM store WHERE id = ?", (store_id,)
+                ).fetchone()
+                if store is None or store["area_id"] != actor.area_id:
+                    raise PermissionDenied("只能查看本片区门店")
+                return [
+                    user
+                    for user in UserRepository(conn).list_staff_of_store(store_id)
+                    if user.role is Role.STORE_MANAGER
+                ]
             return UserRepository(conn).list_staff_of_store(store_id)
 
     @staticmethod
