@@ -10,16 +10,17 @@ from hotel.core.errors import NotFound
 from hotel.core.money import format_cents
 from hotel.m05_order.model import OrderStatus
 from hotel.m05_order.service import RoomRequest
+from hotel.ui import theme
 from hotel.ui.app import Screen
 from hotel.ui.common import ORDER_STATUS_LABEL, guarded, parse_date
 
 
 class QueryScreen(Screen):
-    title = "查询房型"
+    title = "房型查询"
+    subtitle = "按城市、入住日期与人数筛选在售房型"
 
     def build(self) -> None:
-        box = ttk.LabelFrame(self, text="查询条件", padding=16)
-        box.pack(fill="x", padx=16, pady=12)
+        body = theme.card(self, "查询条件", fill="x", pady=(0, 14))
 
         today = date.today()
         self.city = tk.StringVar(value="南京")
@@ -27,20 +28,47 @@ class QueryScreen(Screen):
         self.check_out = tk.StringVar(value=(today + timedelta(days=1)).isoformat())
         self.guests = tk.StringVar(value="2")
 
-        for index, (label, variable, width) in enumerate(
-            (
-                ("城市", self.city, 12),
-                ("入住日期", self.check_in, 14),
-                ("离店日期", self.check_out, 14),
-                ("人数", self.guests, 6),
-            )
+        row = tk.Frame(body, bg=theme.SURFACE)
+        row.pack(fill="x")
+        for label, variable, width in (
+            ("城市", self.city, 10),
+            ("入住日期", self.check_in, 14),
+            ("离店日期", self.check_out, 14),
+            ("人数", self.guests, 6),
         ):
-            ttk.Label(box, text=label).grid(row=0, column=index * 2, padx=6, sticky="e")
-            ttk.Entry(box, textvariable=variable, width=width).grid(
-                row=0, column=index * 2 + 1, padx=6
-            )
+            box = tk.Frame(row, bg=theme.SURFACE)
+            box.pack(side="left", padx=(0, 18))
+            theme.field_label(box, label).pack(anchor="w")
+            theme.entry(box, variable, width).pack(anchor="w", pady=(4, 0))
 
-        ttk.Button(box, text="查询", command=self.search).grid(row=0, column=8, padx=12)
+        actions_row = theme.actions(body, pady=(16, 0))
+        theme.primary(actions_row, "查询", self.search).pack(side="right")
+
+        hot = theme.card(self, "热门房型", fill="both", expand=True)
+        tree = theme.table(
+            hot,
+            ("门店", "房型", "床型", "可住人数", "今晚房价"),
+            widths=[140, 150, 100, 110, 130],
+            height=8,
+        )
+        for item in self.services.store.list_room_types(self.city.get(), 2):
+            try:
+                price = format_cents(
+                    self.services.pricing.get_price(item.room_type_id, today).price_cents
+                )
+            except NotFound:
+                price = "未设置"
+            tree.insert(
+                "",
+                "end",
+                values=(
+                    item.store_name,
+                    item.room_type_name,
+                    item.bed_type,
+                    item.max_guests,
+                    price,
+                ),
+            )
 
     @guarded
     def search(self) -> None:
@@ -59,20 +87,21 @@ class QueryScreen(Screen):
 
 class ResultScreen(Screen):
     title = "查询结果"
+    subtitle = "选择房型查看详情或直接下单"
 
     def build(self) -> None:
-        ttk.Label(self, text="选择房型后进入下单", padding=8).pack(anchor="w", padx=8)
-        columns = ("门店", "房型", "床型", "可住人数", "房间数", "维修中", "可售")
-        self.tree = ttk.Treeview(self, columns=columns, show="headings", height=14)
-        for column in columns:
-            self.tree.heading(column, text=column)
-            self.tree.column(column, width=125, anchor="center")
-        self.tree.pack(fill="both", expand=True, padx=12, pady=6)
+        body = theme.card(self, "可选房型", fill="both", expand=True)
+        self.tree = theme.table(
+            body,
+            ("门店", "房型", "床型", "可住人数", "房间数", "维修中", "可售"),
+            widths=[130, 130, 90, 90, 90, 90, 90],
+            height=14,
+        )
+        actions_row = theme.actions(body)
+        theme.primary(actions_row, "下一步：确认订单", self.choose).pack(side="right")
+        theme.ghost(actions_row, "查看详情", self.detail).pack(side="right", padx=(0, 10))
+
         self.rows: dict[str, object] = {}
-        actions = ttk.Frame(self)
-        actions.pack(pady=10)
-        ttk.Button(actions, text="查看详情", command=self.detail).pack(side="left", padx=6)
-        ttk.Button(actions, text="下一步：确认订单", command=self.choose).pack(side="left", padx=6)
         self.load(self.app.search_results)
 
     def load(self, results) -> None:
@@ -82,7 +111,6 @@ class ResultScreen(Screen):
         for item in results:
             remaining = "—"
             if check_in is not None:
-                # REQ-002 要求展示剩余数量，取入住当晚的线上剩余可售。
                 remaining = self.services.inventory.query(
                     item.room_type_id, check_in
                 ).online_remaining
@@ -101,24 +129,31 @@ class ResultScreen(Screen):
             )
             self.rows[row_id] = item
         if not results:
-            ttk.Label(self, text="没有符合条件的房型，请调整条件", foreground="#b45309").pack()
+            theme.badge(self.tree.master, "没有符合条件的房型，请调整查询条件", "warning").pack(
+                anchor="w", pady=(10, 0)
+            )
 
-    @guarded
-    def choose(self) -> None:
+    def _selected(self):
         selection = self.tree.selection()
         if not selection:
             messagebox.showinfo("提示", "请先选择一个房型")
+            return None
+        return self.rows[selection[0]]
+
+    @guarded
+    def choose(self) -> None:
+        item = self._selected()
+        if item is None:
             return
-        self.app.selected_room_type = self.rows[selection[0]]
+        self.app.selected_room_type = item
         self.app.show(OrderScreen)
 
     @guarded
     def detail(self) -> None:
-        selection = self.tree.selection()
-        if not selection:
-            messagebox.showinfo("提示", "请先选择一个房型")
+        item = self._selected()
+        if item is None:
             return
-        self.app.selected_room_type = self.rows[selection[0]]
+        self.app.selected_room_type = item
         from hotel.ui.customer_extra import (  # pylint: disable=import-outside-toplevel
             HotelDetailScreen,
         )
@@ -128,50 +163,72 @@ class ResultScreen(Screen):
 
 class OrderScreen(Screen):
     title = "确认订单"
+    subtitle = "核对房型、日期与金额后提交"
 
     def build(self) -> None:
         room_type = self.app.selected_room_type
         params = self.app.search_params
-        box = ttk.LabelFrame(self, text="订单信息", padding=16)
-        box.pack(fill="x", padx=16, pady=12)
+        body = theme.card(self, "订单信息", fill="x", pady=(0, 14))
 
-        ttk.Label(box, text=f"门店：{room_type.store_name}").grid(row=0, column=0, sticky="w")
-        ttk.Label(box, text=f"房型：{room_type.room_type_name}").grid(row=1, column=0, sticky="w")
-        ttk.Label(box, text=f"{params['check_in']} 至 {params['check_out']}").grid(
-            row=2, column=0, sticky="w"
-        )
-
-        self.qty = tk.IntVar(value=1)
-        ttk.Label(box, text="间数").grid(row=3, column=0, sticky="w")
-        ttk.Spinbox(box, from_=1, to=5, textvariable=self.qty, width=6).grid(
-            row=3, column=1, sticky="w"
-        )
+        grid = tk.Frame(body, bg=theme.SURFACE)
+        grid.pack(fill="x")
+        for index, (label, value) in enumerate(
+            (
+                ("门店", room_type.store_name),
+                ("房型", room_type.room_type_name),
+                ("入住", str(params["check_in"])),
+                ("离店", str(params["check_out"])),
+            )
+        ):
+            column = index * 2
+            theme.field_label(grid, label).grid(row=0, column=column, sticky="e", padx=(0, 8))
+            tk.Label(grid, text=value, bg=theme.SURFACE, fg=theme.TEXT, font=theme.FONT_BODY).grid(
+                row=0, column=column + 1, sticky="w", padx=(0, 28)
+            )
 
         self.nights = (params["check_out"] - params["check_in"]).days
-        self.summary = ttk.Label(box, text="")
-        self.summary.grid(row=4, column=0, columnspan=2, pady=10, sticky="w")
+        self.qty = tk.IntVar(value=1)
+        theme.field_label(grid, "间数").grid(row=1, column=0, sticky="e", pady=(14, 0))
+        ttk.Spinbox(grid, from_=1, to=5, textvariable=self.qty, width=5, style="App.TSpinbox").grid(
+            row=1, column=1, sticky="w", pady=(14, 0)
+        )
+
+        self.summary = tk.Frame(body, bg=theme.SURFACE_ALT)
+        self.summary.pack(fill="x", pady=(16, 0))
+        self.summary_label = tk.Label(
+            self.summary,
+            text="",
+            bg=theme.SURFACE_ALT,
+            fg=theme.TEXT,
+            font=theme.FONT_BODY,
+            justify="left",
+            anchor="w",
+            padx=14,
+            pady=12,
+        )
+        self.summary_label.pack(fill="x")
         self.refresh_total()
 
-        ttk.Button(self, text="提交订单", command=self.submit).pack(pady=8)
+        actions_row = theme.actions(body)
+        theme.primary(actions_row, "提交订单", self.submit).pack(side="right")
 
     def refresh_total(self) -> None:
         params = self.app.search_params
         room_type = self.app.selected_room_type
-        nights = (params["check_out"] - params["check_in"]).days
         total = 0
         detail = []
         try:
-            for offset in range(nights):
+            for offset in range(self.nights):
                 night = date.fromordinal(params["check_in"].toordinal() + offset)
                 price = self.services.pricing.get_price(room_type.room_type_id, night)
                 total += price.price_cents
-                detail.append(f"{night} {format_cents(price.price_cents)}")
+                detail.append(f"{night}  {format_cents(price.price_cents)}")
         except NotFound:
-            self.summary.configure(text="所选日期尚未设置房价")
+            self.summary_label.configure(text="所选日期尚未设置房价")
             return
-        self.nights = nights
-        self.summary.configure(
-            text=f"共 {nights} 晚：\n" + "\n".join(detail) + f"\n合计 {format_cents(total)}"
+        nights_text = "    ".join(detail)
+        self.summary_label.configure(
+            text=f"共 {self.nights} 晚\n{nights_text}\n合计 {format_cents(total)}"
         )
 
     @guarded
@@ -192,15 +249,39 @@ class OrderScreen(Screen):
 
 class PaymentScreen(Screen):
     title = "支付"
+    subtitle = "支付成功后订单转为已确认"
 
     def build(self) -> None:
         order = self.app.current_order
-        box = ttk.LabelFrame(self, text="待支付", padding=20)
-        box.pack(fill="x", padx=16, pady=16)
-        ttk.Label(box, text=f"订单号：{order.order_no}").pack(anchor="w")
-        ttk.Label(box, text=f"金额：{format_cents(order.total_cents)}").pack(anchor="w")
-        ttk.Label(box, text="支付后订单转为已确认").pack(anchor="w", pady=6)
-        ttk.Button(self, text="模拟支付成功", command=self.pay).pack(pady=10)
+        holder = tk.Frame(self, bg=theme.BG)
+        holder.place(relx=0.5, rely=0.4, anchor="center")
+
+        box = tk.Frame(
+            holder, bg=theme.SURFACE, highlightbackground=theme.BORDER, highlightthickness=1
+        )
+        box.pack()
+        inner = tk.Frame(box, bg=theme.SURFACE)
+        inner.pack(padx=48, pady=36)
+
+        tk.Label(
+            inner, text="待支付", bg=theme.SURFACE, fg=theme.MUTED, font=theme.FONT_SMALL
+        ).pack(anchor="w")
+        tk.Label(
+            inner,
+            text=format_cents(order.total_cents),
+            bg=theme.SURFACE,
+            fg=theme.ACCENT,
+            font=(theme.FAMILY, 28, "bold"),
+        ).pack(anchor="w", pady=(4, 6))
+        tk.Label(
+            inner,
+            text=f"订单号 {order.order_no}",
+            bg=theme.SURFACE,
+            fg=theme.MUTED,
+            font=theme.FONT_SMALL,
+        ).pack(anchor="w", pady=(0, 22))
+
+        theme.primary(inner, "确认支付", self.pay).pack(fill="x")
 
     @guarded
     def pay(self) -> None:
@@ -213,21 +294,21 @@ class PaymentScreen(Screen):
 
 class CustomerOrdersScreen(Screen):
     title = "我的订单"
+    subtitle = "查看订单状态，进行支付、取消或评价"
 
     def build(self) -> None:
-        columns = ("订单号", "门店", "状态", "入住", "离店", "金额")
-        self.tree = ttk.Treeview(self, columns=columns, show="headings", height=14)
-        for column in columns:
-            self.tree.heading(column, text=column)
-            self.tree.column(column, width=150, anchor="center")
-        self.tree.pack(fill="both", expand=True, padx=12, pady=8)
-
-        actions = ttk.Frame(self)
-        actions.pack(pady=8)
-        ttk.Button(actions, text="刷新", command=self.refresh).pack(side="left", padx=4)
-        ttk.Button(actions, text="去支付", command=self.go_pay).pack(side="left", padx=4)
-        ttk.Button(actions, text="取消订单", command=self.cancel).pack(side="left", padx=4)
-        ttk.Button(actions, text="提交评价", command=self.review).pack(side="left", padx=4)
+        body = theme.card(self, "订单列表", fill="both", expand=True)
+        self.tree = theme.table(
+            body,
+            ("订单号", "门店", "状态", "入住", "离店", "金额"),
+            widths=[190, 120, 90, 110, 110, 110],
+            height=14,
+        )
+        actions_row = theme.actions(body)
+        theme.primary(actions_row, "去支付", self.go_pay).pack(side="right")
+        theme.ghost(actions_row, "提交评价", self.review).pack(side="right", padx=(0, 10))
+        theme.ghost(actions_row, "取消订单", self.cancel).pack(side="right", padx=(0, 10))
+        theme.ghost(actions_row, "刷新", self.refresh).pack(side="left")
 
         self.orders: dict[str, object] = {}
         self.refresh()

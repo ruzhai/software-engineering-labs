@@ -26,18 +26,6 @@ ORDER_STATUS_LABEL = {
 }
 
 
-def make_table(parent, columns: tuple[str, ...], width: int = 150):
-    """统一的只读表格。"""
-    from tkinter import ttk  # pylint: disable=import-outside-toplevel
-
-    tree = ttk.Treeview(parent, columns=columns, show="headings", height=14)
-    for column in columns:
-        tree.heading(column, text=column)
-        tree.column(column, width=width, anchor="center")
-    tree.pack(fill="both", expand=True, padx=12, pady=8)
-    return tree
-
-
 def guarded(func):
     """把业务异常转成提示框，绝不让异常冒到 Tk 主循环。"""
 

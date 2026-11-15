@@ -7,16 +7,17 @@ from datetime import date
 from tkinter import messagebox, ttk
 
 from hotel.core.money import cents_to_yuan, format_cents, yuan_to_cents
+from hotel.ui import theme
 from hotel.ui.app import Screen
 from hotel.ui.common import guarded, parse_date
 
 
 class PricingScreen(Screen):
     title = "改价与审批"
+    subtitle = "在平台下发的价格区间内调整房价"
 
     def build(self) -> None:
-        box = ttk.LabelFrame(self, text="设置房价", padding=12)
-        box.pack(fill="x", padx=16, pady=10)
+        form = theme.card(self, "设置房价", fill="x", pady=(0, 14))
 
         self.room_types = self.services.store.list_room_types_of_store(self.app.session.store_id)
         self.room_type_names = [item.name for item in self.room_types]
@@ -27,35 +28,44 @@ class PricingScreen(Screen):
         self.end = tk.StringVar(value=date.today().isoformat())
         self.price = tk.StringVar(value="500")
 
-        ttk.Label(box, text="房型").grid(row=0, column=0, padx=6, sticky="e")
+        grid = tk.Frame(form, bg=theme.SURFACE)
+        grid.pack(fill="x")
+        theme.field_label(grid, "房型").grid(row=0, column=0, sticky="e", padx=(0, 8))
         ttk.Combobox(
-            box, textvariable=self.selected_type, values=self.room_type_names, state="readonly"
-        ).grid(row=0, column=1, padx=6)
-        ttk.Label(box, text="开始").grid(row=0, column=2, padx=6, sticky="e")
-        ttk.Entry(box, textvariable=self.start, width=12).grid(row=0, column=3, padx=6)
-        ttk.Label(box, text="结束").grid(row=0, column=4, padx=6, sticky="e")
-        ttk.Entry(box, textvariable=self.end, width=12).grid(row=0, column=5, padx=6)
-        ttk.Label(box, text="单价（元）").grid(row=0, column=6, padx=6, sticky="e")
-        ttk.Entry(box, textvariable=self.price, width=10).grid(row=0, column=7, padx=6)
-        ttk.Button(box, text="保存", command=self.save_price).grid(row=0, column=8, padx=8)
+            grid,
+            textvariable=self.selected_type,
+            values=self.room_type_names,
+            state="readonly",
+            width=14,
+            style="App.TCombobox",
+        ).grid(row=0, column=1, sticky="w")
+        theme.field_label(grid, "开始").grid(row=0, column=2, sticky="e", padx=(20, 8))
+        theme.entry(grid, self.start, 12).grid(row=0, column=3, sticky="w")
+        theme.field_label(grid, "结束").grid(row=0, column=4, sticky="e", padx=(20, 8))
+        theme.entry(grid, self.end, 12).grid(row=0, column=5, sticky="w")
+        theme.field_label(grid, "单价（元）").grid(row=0, column=6, sticky="e", padx=(20, 8))
+        theme.entry(grid, self.price, 8).grid(row=0, column=7, sticky="w")
 
-        ttk.Label(self, text="待审批的改价申请", padding=6).pack(anchor="w", padx=16)
-        self.tree = ttk.Treeview(
-            self, columns=("日期", "原价", "申请价", "申请人"), show="headings", height=10
+        actions_row = theme.actions(form)
+        theme.primary(actions_row, "保存", self.save_price).pack(side="right")
+
+        body = theme.card(self, "待审批的改价申请", fill="both", expand=True)
+        self.tree = theme.table(
+            body, ("日期", "原价", "申请价", "申请人"), widths=[160, 140, 140, 160], height=10
         )
-        for column in ("日期", "原价", "申请价", "申请人"):
-            self.tree.heading(column, text=column)
-            self.tree.column(column, width=160, anchor="center")
-        self.tree.pack(fill="both", expand=True, padx=16, pady=6)
-
-        actions = ttk.Frame(self)
-        actions.pack(pady=8)
-        ttk.Button(actions, text="刷新", command=self.refresh).pack(side="left", padx=4)
-        ttk.Button(actions, text="通过", command=self.approve).pack(side="left", padx=4)
-        ttk.Button(actions, text="驳回", command=self.reject).pack(side="left", padx=4)
+        actions = theme.actions(body)
+        theme.primary(actions, "通过", self.approve).pack(side="right")
+        theme.ghost(actions, "驳回", self.reject).pack(side="right", padx=(0, 10))
+        theme.ghost(actions, "刷新", self.refresh).pack(side="left")
 
         self.requests: dict[str, object] = {}
         self.refresh()
+
+    def _applicant_name(self, user_id: str) -> str:
+        try:
+            return self.services.account.get_user(user_id).name
+        except Exception:  # pylint: disable=broad-exception-caught
+            return user_id[-6:]
 
     def _selected_room_type(self):
         name = self.selected_type.get()
@@ -92,7 +102,7 @@ class PricingScreen(Screen):
                     request.price_date,
                     cents_to_yuan(request.old_cents),
                     cents_to_yuan(request.new_cents),
-                    request.applicant[-6:],
+                    self._applicant_name(request.applicant),
                 ),
             )
             self.requests[row] = request

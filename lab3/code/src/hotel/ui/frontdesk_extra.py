@@ -10,20 +10,25 @@ from hotel.core.ids import new_id
 from hotel.core.money import format_cents
 from hotel.m02_store.model import RoomStatus
 from hotel.m05_order.service import RoomRequest
+from hotel.ui import theme
 from hotel.ui.app import Screen
-from hotel.ui.common import guarded, make_table, parse_date
+from hotel.ui.common import guarded, parse_date
 
 CLEANING_STATES = (RoomStatus.CHECKED_OUT, RoomStatus.CLEANING)
 
 
 class HousekeepingScreen(Screen):
     title = "客房打扫"
+    subtitle = "打扫完成前，房间不能回到空闲状态"
 
     def build(self) -> None:
-        ttk.Label(self, text="待打扫房间", padding=8).pack(anchor="w", padx=8)
-        self.tree = make_table(self, ("房型", "房号", "状态"))
+        body = theme.card(self, "待打扫房间", fill="both", expand=True)
+        self.tree = theme.table(body, ("房型", "房号", "状态"), widths=[200, 160, 160], height=14)
+        actions_row = theme.actions(body)
+        theme.primary(actions_row, "打扫完成", self.finish).pack(side="right")
+        theme.ghost(actions_row, "刷新", self.refresh).pack(side="left")
+
         self.rooms: dict[str, object] = {}
-        ttk.Button(self, text="打扫完成", command=self.finish).pack(pady=8)
         self.refresh()
 
     def refresh(self) -> None:
@@ -37,6 +42,10 @@ class HousekeepingScreen(Screen):
                     "", "end", values=(room_type.name, room.room_no, room.status.value)
                 )
                 self.rooms[row] = room
+        if not self.rooms:
+            theme.badge(self.tree.master, "当前没有待打扫房间", "success").pack(
+                anchor="w", pady=(8, 0)
+            )
 
     @guarded
     def finish(self) -> None:
@@ -51,57 +60,72 @@ class HousekeepingScreen(Screen):
 
 class WalkInScreen(Screen):
     title = "前台开单"
+    subtitle = "线下开单占用保留额度，不扣线上库存"
 
     def build(self) -> None:
-        form = ttk.LabelFrame(self, text="线下开单（占用线下保留额度）", padding=14)
-        form.pack(fill="x", padx=16, pady=12)
+        body = theme.card(self, "线下开单", fill="x", pady=(0, 14))
 
         self.phone = tk.StringVar()
-        self.customer_name = tk.StringVar(value="未查询")
-        self.room_type_names: list[str] = []
-        self.room_type_ids: dict[str, str] = {}
-        self.selected_type = tk.StringVar()
+        self.customer_id: str | None = None
+        self.customer_name = tk.StringVar(value="尚未查询")
         self.qty = tk.IntVar(value=1)
         today = date.today()
         self.check_in = tk.StringVar(value=today.isoformat())
         self.check_out = tk.StringVar(value=(today + timedelta(days=1)).isoformat())
 
-        ttk.Label(form, text="顾客手机号").grid(row=0, column=0, sticky="e", padx=6)
-        ttk.Entry(form, textvariable=self.phone, width=16).grid(row=0, column=1)
-        ttk.Button(form, text="查顾客", command=self.lookup).grid(row=0, column=2, padx=6)
-        ttk.Label(form, textvariable=self.customer_name, foreground="#2f855a").grid(
-            row=0, column=3, columnspan=2, sticky="w"
-        )
+        room_types = self.services.store.list_room_types_of_store(self.app.session.store_id)
+        self.room_type_ids = {room_type.name: room_type.id for room_type in room_types}
+        self.selected_type = tk.StringVar(value=room_types[0].name if room_types else "")
 
-        for room_type in self.services.store.list_room_types_of_store(self.app.session.store_id):
-            self.room_type_names.append(room_type.name)
-            self.room_type_ids[room_type.name] = room_type.id
-        if self.room_type_names:
-            self.selected_type.set(self.room_type_names[0])
+        grid = tk.Frame(body, bg=theme.SURFACE)
+        grid.pack(fill="x")
 
-        ttk.Label(form, text="房型").grid(row=1, column=0, sticky="e", padx=6, pady=6)
+        theme.field_label(grid, "顾客手机号").grid(row=0, column=0, sticky="e", padx=(0, 8))
+        theme.entry(grid, self.phone, 16).grid(row=0, column=1, sticky="w")
+        theme.ghost(grid, "查顾客", self.lookup).grid(row=0, column=2, padx=10)
+        tk.Label(
+            grid,
+            textvariable=self.customer_name,
+            bg=theme.SURFACE,
+            fg=theme.SUCCESS,
+            font=theme.FONT_BODY,
+        ).grid(row=0, column=3, columnspan=3, sticky="w")
+
+        theme.field_label(grid, "房型").grid(row=1, column=0, sticky="e", pady=(14, 0))
         ttk.Combobox(
-            form,
+            grid,
             textvariable=self.selected_type,
-            values=self.room_type_names,
+            values=list(self.room_type_ids),
             state="readonly",
             width=14,
-        ).grid(row=1, column=1)
-        ttk.Label(form, text="间数").grid(row=1, column=2, sticky="e", padx=6)
-        ttk.Spinbox(form, from_=1, to=5, textvariable=self.qty, width=5).grid(row=1, column=3)
-
-        ttk.Label(form, text="入住").grid(row=2, column=0, sticky="e", padx=6)
-        ttk.Entry(form, textvariable=self.check_in, width=14).grid(row=2, column=1, pady=6)
-        ttk.Label(form, text="离店").grid(row=2, column=2, sticky="e", padx=6)
-        ttk.Entry(form, textvariable=self.check_out, width=14).grid(row=2, column=3)
-
-        ttk.Button(form, text="确认开单", command=self.create).grid(
-            row=3, column=0, columnspan=4, pady=10, sticky="ew"
+            style="App.TCombobox",
+        ).grid(row=1, column=1, sticky="w", pady=(14, 0))
+        theme.field_label(grid, "间数").grid(
+            row=1, column=2, sticky="e", pady=(14, 0), padx=(18, 8)
+        )
+        ttk.Spinbox(grid, from_=1, to=5, textvariable=self.qty, width=5, style="App.TSpinbox").grid(
+            row=1, column=3, sticky="w", pady=(14, 0)
         )
 
-        ttk.Label(self, text="说明：线下开单从当日保留额度扣减，不占用线上库存。").pack(
-            anchor="w", padx=16
+        theme.field_label(grid, "入住").grid(row=2, column=0, sticky="e", pady=(12, 0))
+        theme.entry(grid, self.check_in, 14).grid(row=2, column=1, sticky="w", pady=(12, 0))
+        theme.field_label(grid, "离店").grid(
+            row=2, column=2, sticky="e", pady=(12, 0), padx=(18, 8)
         )
+        theme.entry(grid, self.check_out, 14).grid(row=2, column=3, sticky="w", pady=(12, 0))
+
+        actions_row = theme.actions(body, pady=(18, 0))
+        theme.primary(actions_row, "确认开单", self.create).pack(side="right")
+
+        note = theme.card(self, "说明", fill="x")
+        tk.Label(
+            note,
+            text="线下开单从当日保留额度扣减；保留额度不足时应改走线上渠道。",
+            bg=theme.SURFACE,
+            fg=theme.MUTED,
+            font=theme.FONT_SMALL,
+            anchor="w",
+        ).pack(fill="x")
 
     @guarded
     def lookup(self) -> None:
@@ -113,12 +137,11 @@ class WalkInScreen(Screen):
 
     @guarded
     def create(self) -> None:
-        customer_id = getattr(self, "customer_id", None)
+        customer_id = self.customer_id
         if customer_id is None:
             messagebox.showinfo("提示", "请先查询顾客")
             return
-        name = self.selected_type.get()
-        room_type_id = self.room_type_ids.get(name)
+        room_type_id = self.room_type_ids.get(self.selected_type.get())
         if room_type_id is None:
             messagebox.showinfo("提示", "请选择房型")
             return

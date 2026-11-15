@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import tkinter as tk
 from datetime import date, timedelta
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import messagebox, simpledialog
 
 from hotel.core.money import format_cents
 from hotel.m02_store.model import RoomStatus
 from hotel.m05_order.model import OrderStatus
+from hotel.ui import theme
 from hotel.ui.app import Screen
 from hotel.ui.common import guarded, parse_date
 
@@ -29,29 +31,46 @@ def _rooms_of_store(services, store_id: str):
 
 class BoardScreen(Screen):
     title = "房态看板"
+    subtitle = "推进房态，维修中的房间会同步压减可售上限"
 
     def build(self) -> None:
-        columns = ("房型", "房号", "状态", "预计修复")
-        self.tree = ttk.Treeview(self, columns=columns, show="headings", height=16)
-        for column in columns:
-            self.tree.heading(column, text=column)
-            self.tree.column(column, width=160, anchor="center")
-        self.tree.pack(fill="both", expand=True, padx=12, pady=8)
+        self.kpi = tk.Frame(self, bg=theme.BG)
+        self.kpi.pack(fill="x")
 
-        actions = ttk.Frame(self)
-        actions.pack(pady=8)
-        ttk.Button(actions, text="刷新", command=self.refresh).pack(side="left", padx=4)
-        ttk.Button(actions, text="设为维修", command=self.mark_repairing).pack(side="left", padx=4)
-        ttk.Button(actions, text="修复完成", command=self.mark_fixed).pack(side="left", padx=4)
-        ttk.Button(actions, text="打扫完成", command=self.mark_clean).pack(side="left", padx=4)
+        body = theme.card(self, "全部房间", fill="both", expand=True)
+        self.tree = theme.table(
+            body, ("房型", "房号", "状态", "预计修复"), widths=[160, 120, 120, 140], height=14
+        )
+        actions_row = theme.actions(body)
+        theme.primary(actions_row, "设为维修", self.mark_repairing).pack(side="right")
+        theme.ghost(actions_row, "修复完成", self.mark_fixed).pack(side="right", padx=(0, 10))
+        theme.ghost(actions_row, "打扫完成", self.mark_clean).pack(side="right", padx=(0, 10))
+        theme.ghost(actions_row, "刷新", self.refresh).pack(side="left")
 
         self.rooms: dict[str, object] = {}
         self.refresh()
 
     def refresh(self) -> None:
+        for child in self.kpi.winfo_children():
+            child.destroy()
+        pairs = list(_rooms_of_store(self.services, self.app.session.store_id))
+        counts = {status: 0 for status in RoomStatus}
+        for _, room in pairs:
+            counts[room.status] += 1
+        theme.kpi_row(
+            self.kpi,
+            [
+                ("空闲", str(counts[RoomStatus.FREE]), "可直接排房", theme.SUCCESS),
+                ("已预定", str(counts[RoomStatus.RESERVED]), "等待入住", theme.ACCENT),
+                ("已入住", str(counts[RoomStatus.OCCUPIED]), "在住房间", theme.ACCENT),
+                ("需打扫", str(counts[RoomStatus.CLEANING]), "待客房清理", theme.WARNING),
+                ("维修中", str(counts[RoomStatus.REPAIRING]), "已从可售上限扣除", theme.DANGER),
+            ],
+        )
+
         self.tree.delete(*self.tree.get_children())
         self.rooms.clear()
-        for room_type, room in _rooms_of_store(self.services, self.app.session.store_id):
+        for room_type, room in pairs:
             row = self.tree.insert(
                 "",
                 "end",
@@ -63,8 +82,6 @@ class BoardScreen(Screen):
                 ),
             )
             self.rooms[row] = room
-        if not self.rooms:
-            self.tree.insert("", "end", values=("（本店还没有房间）", "", "", ""))
 
     def _selected(self):
         selection = self.tree.selection()
@@ -109,19 +126,19 @@ class BoardScreen(Screen):
 
 class CheckInScreen(Screen):
     title = "办理入住"
+    subtitle = "为已确认订单分配房间并办理入住"
 
     def build(self) -> None:
-        columns = ("订单号", "入住", "离店", "金额", "房型")
-        self.tree = ttk.Treeview(self, columns=columns, show="headings", height=14)
-        for column in columns:
-            self.tree.heading(column, text=column)
-            self.tree.column(column, width=160, anchor="center")
-        self.tree.pack(fill="both", expand=True, padx=12, pady=8)
-
-        actions = ttk.Frame(self)
-        actions.pack(pady=8)
-        ttk.Button(actions, text="刷新", command=self.refresh).pack(side="left", padx=4)
-        ttk.Button(actions, text="分配房间并入住", command=self.check_in).pack(side="left", padx=4)
+        body = theme.card(self, "待入住订单", fill="both", expand=True)
+        self.tree = theme.table(
+            body,
+            ("订单号", "入住", "离店", "金额", "房型"),
+            widths=[200, 110, 110, 110, 130],
+            height=14,
+        )
+        actions_row = theme.actions(body)
+        theme.primary(actions_row, "分配房间并入住", self.check_in).pack(side="right")
+        theme.ghost(actions_row, "刷新", self.refresh).pack(side="left")
 
         self.orders: dict[str, object] = {}
         self.refresh()
@@ -184,19 +201,16 @@ class CheckInScreen(Screen):
 
 class CheckOutScreen(Screen):
     title = "办理退房"
+    subtitle = "退房后房间自动转为需打扫"
 
     def build(self) -> None:
-        columns = ("订单号", "入住", "离店", "金额")
-        self.tree = ttk.Treeview(self, columns=columns, show="headings", height=14)
-        for column in columns:
-            self.tree.heading(column, text=column)
-            self.tree.column(column, width=180, anchor="center")
-        self.tree.pack(fill="both", expand=True, padx=12, pady=8)
-
-        actions = ttk.Frame(self)
-        actions.pack(pady=8)
-        ttk.Button(actions, text="刷新", command=self.refresh).pack(side="left", padx=4)
-        ttk.Button(actions, text="确认退房", command=self.check_out).pack(side="left", padx=4)
+        body = theme.card(self, "在住订单", fill="both", expand=True)
+        self.tree = theme.table(
+            body, ("订单号", "入住", "离店", "金额"), widths=[220, 120, 120, 120], height=14
+        )
+        actions_row = theme.actions(body)
+        theme.primary(actions_row, "确认退房", self.check_out).pack(side="right")
+        theme.ghost(actions_row, "刷新", self.refresh).pack(side="left")
 
         self.orders: dict[str, object] = {}
         self.refresh()

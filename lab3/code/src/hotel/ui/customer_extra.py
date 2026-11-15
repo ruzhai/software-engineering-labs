@@ -9,31 +9,39 @@ from tkinter import messagebox, ttk
 from hotel.core.errors import NotFound
 from hotel.core.money import format_cents
 from hotel.m05_order.model import OrderStatus
+from hotel.ui import theme
 from hotel.ui.app import Screen
-from hotel.ui.common import guarded, make_table
+from hotel.ui.common import guarded
 
 
 class HotelDetailScreen(Screen):
     title = "房型详情"
+    subtitle = "查看房型基本信息与近期房价"
 
     def build(self) -> None:
         item = self.app.selected_room_type
         if item is None:
-            ttk.Label(self, text="请先查询并选择一个房型").pack(pady=20)
+            theme.badge(self, "请先查询并选择一个房型", "warning").pack(anchor="w")
             return
 
-        box = ttk.LabelFrame(self, text=f"{item.store_name} · {item.room_type_name}", padding=16)
-        box.pack(fill="x", padx=16, pady=12)
-        ttk.Label(
-            box,
-            text=(
-                f"床型：{item.bed_type}    可住 {item.max_guests} 人    "
-                f"房间 {item.total_rooms} 间（维修 {item.under_repair} 间）"
-            ),
-        ).pack(anchor="w")
+        theme.kpi_row(
+            self,
+            [
+                ("门店", item.store_name, item.city, theme.TEXT),
+                ("房型", item.room_type_name, item.bed_type, theme.TEXT),
+                ("可住人数", f"{item.max_guests} 人", "含成人与儿童", theme.TEXT),
+                (
+                    "房间总数",
+                    str(item.total_rooms),
+                    f"维修中 {item.under_repair} 间",
+                    theme.WARNING,
+                ),
+            ],
+        )
 
-        ttk.Label(self, text="未来七天房价", padding=6).pack(anchor="w", padx=16)
-        tree = make_table(self, ("日期", "房价"))
+        body = theme.card(self, "未来七天房价", fill="both", expand=True)
+        tree = theme.table(body, ("日期", "星期", "房价"), widths=[160, 120, 160], height=8)
+        weekdays = "一二三四五六日"
         today = date.today()
         for offset in range(7):
             day = today + timedelta(days=offset)
@@ -43,12 +51,11 @@ class HotelDetailScreen(Screen):
                 )
             except NotFound:
                 text = "未设置"
-            tree.insert("", "end", values=(day.isoformat(), text))
+            tree.insert("", "end", values=(day.isoformat(), f"周{weekdays[day.weekday()]}", text))
 
-        actions = ttk.Frame(self)
-        actions.pack(pady=8)
-        ttk.Button(actions, text="返回结果", command=self.go_back).pack(side="left", padx=6)
-        ttk.Button(actions, text="去下单", command=self.go_order).pack(side="left", padx=6)
+        actions_row = theme.actions(body)
+        theme.primary(actions_row, "去下单", self.go_order).pack(side="right")
+        theme.ghost(actions_row, "返回结果", self.go_back).pack(side="right", padx=(0, 10))
 
     def go_back(self) -> None:
         from hotel.ui.customer import ResultScreen  # pylint: disable=import-outside-toplevel
@@ -63,24 +70,34 @@ class HotelDetailScreen(Screen):
 
 class ReviewScreen(Screen):
     title = "提交评价"
+    subtitle = "已退房的订单可以评价一次"
 
     def build(self) -> None:
-        ttk.Label(self, text="选择一笔已退房的订单", padding=8).pack(anchor="w", padx=8)
-        self.tree = make_table(self, ("订单号", "入住", "离店", "金额"))
-        self.orders: dict[str, object] = {}
-        self.refresh()
+        body = theme.card(self, "可评价的订单", fill="both", expand=True)
+        self.tree = theme.table(
+            body,
+            ("订单号", "门店", "入住", "离店", "金额"),
+            widths=[190, 130, 110, 110, 110],
+            height=12,
+        )
 
-        form = ttk.LabelFrame(self, text="评价内容", padding=12)
-        form.pack(fill="x", padx=16, pady=6)
+        form = theme.card(self, "评价内容", fill="x", pady=(14, 0))
+        line = tk.Frame(form, bg=theme.SURFACE)
+        line.pack(fill="x")
         self.score = tk.IntVar(value=5)
         self.content = tk.StringVar()
-        ttk.Label(form, text="评分").grid(row=0, column=0, sticky="e", padx=6)
-        ttk.Spinbox(form, from_=1, to=5, textvariable=self.score, width=5).grid(
-            row=0, column=1, sticky="w"
-        )
-        ttk.Label(form, text="内容").grid(row=0, column=2, sticky="e", padx=6)
-        ttk.Entry(form, textvariable=self.content, width=48).grid(row=0, column=3)
-        ttk.Button(form, text="提交评价", command=self.submit).grid(row=0, column=4, padx=8)
+        theme.field_label(line, "评分").pack(side="left", padx=(0, 8))
+        ttk.Spinbox(
+            line, from_=1, to=5, textvariable=self.score, width=5, style="App.TSpinbox"
+        ).pack(side="left", padx=(0, 18))
+        theme.field_label(line, "内容").pack(side="left", padx=(0, 8))
+        theme.entry(line, self.content, 48).pack(side="left")
+
+        actions_row = theme.actions(form)
+        theme.primary(actions_row, "提交评价", self.submit).pack(side="right")
+
+        self.orders: dict[str, object] = {}
+        self.refresh()
 
     def refresh(self) -> None:
         self.tree.delete(*self.tree.get_children())
@@ -93,6 +110,7 @@ class ReviewScreen(Screen):
                 "end",
                 values=(
                     order.order_no,
+                    order.store_name,
                     order.check_in_date,
                     order.check_out_date,
                     format_cents(order.total_cents),

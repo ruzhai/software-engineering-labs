@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
+import tkinter as tk
 from tkinter import messagebox, ttk
 
 from hotel.core.money import cents_to_yuan
+from hotel.ui import theme
 from hotel.ui.app import Screen
-from hotel.ui.common import guarded, make_table
+from hotel.ui.common import guarded
 
 
 class ApprovalScreen(Screen):
     title = "审批中心"
+    subtitle = "店长统一处理改价、取消与改期申请"
 
     def build(self) -> None:
-        notebook = ttk.Notebook(self)
-        notebook.pack(fill="both", expand=True, padx=12, pady=8)
+        body = theme.card(self, "待审批事项", fill="both", expand=True)
+        notebook = ttk.Notebook(body, style="App.TNotebook")
+        notebook.pack(fill="both", expand=True)
+        self.notebook = notebook
 
         self.price_tab, self.price_tree = self._tab(
             notebook, "改价申请", ("日期", "原价", "申请价")
@@ -28,23 +33,26 @@ class ApprovalScreen(Screen):
         self.cancel_items: dict[str, object] = {}
         self.modify_items: dict[str, object] = {}
 
-        actions = ttk.Frame(self)
-        actions.pack(pady=8)
-        ttk.Button(actions, text="刷新", command=self.refresh).pack(side="left", padx=4)
-        ttk.Button(actions, text="通过", command=self.approve).pack(side="left", padx=4)
-        ttk.Button(actions, text="驳回", command=self.reject).pack(side="left", padx=4)
+        actions = theme.actions(body)
+        theme.primary(actions, "通过", self.approve).pack(side="right")
+        theme.ghost(actions, "驳回", self.reject).pack(side="right", padx=(0, 10))
+        theme.ghost(actions, "刷新", self.refresh).pack(side="left")
 
-        self.notebook = notebook
         self.refresh()
 
     def _tab(self, notebook, title: str, columns: tuple[str, ...]):
-        frame = ttk.Frame(notebook)
-        tree = make_table(frame, columns, width=180)
+        frame = tk.Frame(notebook, bg=theme.SURFACE)
+        tree = theme.table(frame, columns, widths=[190] * len(columns), height=12)
         notebook.add(frame, text=title)
         return frame, tree
 
     def refresh(self) -> None:
         store_id = self.app.session.store_id
+        order_numbers = {
+            order.id: order.order_no
+            for order in self.services.order.list_store_orders(self.app.session, store_id)
+        }
+
         self.price_tree.delete(*self.price_tree.get_children())
         self.price_items.clear()
         for request in self.services.pricing.list_pending_requests(self.app.session, store_id):
@@ -62,7 +70,9 @@ class ApprovalScreen(Screen):
         self.cancel_tree.delete(*self.cancel_tree.get_children())
         self.cancel_items.clear()
         for request in self.services.order.list_cancel_requests(self.app.session, store_id):
-            row = self.cancel_tree.insert("", "end", values=(request.order_id[-8:], request.reason))
+            row = self.cancel_tree.insert(
+                "", "end", values=(order_numbers.get(request.order_id, ""), request.reason)
+            )
             self.cancel_items[row] = request
 
         self.modify_tree.delete(*self.modify_tree.get_children())
@@ -72,7 +82,7 @@ class ApprovalScreen(Screen):
                 "",
                 "end",
                 values=(
-                    request.order_id[-8:],
+                    order_numbers.get(request.order_id, ""),
                     cents_to_yuan(request.old_total_cents),
                     cents_to_yuan(request.new_total_cents),
                     request.check_in_date,
@@ -124,11 +134,15 @@ class ApprovalScreen(Screen):
 
 class StoreStaffScreen(Screen):
     title = "本店员工"
+    subtitle = "本店人员名册与账号状态"
 
     def build(self) -> None:
-        ttk.Label(self, text="本店员工名册", padding=8).pack(anchor="w", padx=8)
-        self.tree = make_table(self, ("姓名", "手机号", "角色", "状态"))
-        ttk.Button(self, text="刷新", command=self.refresh).pack(pady=8)
+        body = theme.card(self, "员工名册", fill="both", expand=True)
+        self.tree = theme.table(
+            body, ("姓名", "手机号", "角色", "状态"), widths=[160, 180, 160, 140], height=14
+        )
+        actions = theme.actions(body)
+        theme.ghost(actions, "刷新", self.refresh).pack(side="left")
         self.refresh()
 
     def refresh(self) -> None:
@@ -143,11 +157,15 @@ class StoreStaffScreen(Screen):
 
 class MessageScreen(Screen):
     title = "消息中心"
+    subtitle = "通知发送结果与重试情况"
 
     def build(self) -> None:
-        ttk.Label(self, text="本店通知记录", padding=8).pack(anchor="w", padx=8)
-        self.tree = make_table(self, ("类型", "状态", "失败原因", "重试次数"))
-        ttk.Button(self, text="刷新", command=self.refresh).pack(pady=8)
+        body = theme.card(self, "本店通知记录", fill="both", expand=True)
+        self.tree = theme.table(
+            body, ("类型", "状态", "失败原因", "重试次数"), widths=[200, 120, 220, 110], height=14
+        )
+        actions = theme.actions(body)
+        theme.ghost(actions, "刷新", self.refresh).pack(side="left")
         self.refresh()
 
     def refresh(self) -> None:
@@ -164,11 +182,18 @@ class MessageScreen(Screen):
 
 class AuditScreen(Screen):
     title = "操作日志"
+    subtitle = "按角色数据范围过滤，日志不可修改"
 
     def build(self) -> None:
-        ttk.Label(self, text="操作日志（按角色数据范围过滤）", padding=8).pack(anchor="w", padx=8)
-        self.tree = make_table(self, ("时间", "操作人角色", "动作", "对象", "原因"))
-        ttk.Button(self, text="刷新", command=self.refresh).pack(pady=8)
+        body = theme.card(self, "最近操作", fill="both", expand=True)
+        self.tree = theme.table(
+            body,
+            ("时间", "操作人角色", "动作", "对象", "原因"),
+            widths=[130, 140, 220, 110, 260],
+            height=14,
+        )
+        actions = theme.actions(body)
+        theme.ghost(actions, "刷新", self.refresh).pack(side="left")
         self.refresh()
 
     def refresh(self) -> None:

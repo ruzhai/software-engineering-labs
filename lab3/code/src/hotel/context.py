@@ -43,12 +43,12 @@ class Services:
     channel: InMemoryChannel
 
 
-def build_services(db_path: str | Path = DEFAULT_DB_PATH) -> Services:
+def build_services(db_path: str | Path = DEFAULT_DB_PATH, clock: Clock | None = None) -> Services:
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     database = Database(path)
     database.initialize()
-    clock = SystemClock()
+    clock = clock or SystemClock()
 
     store = StoreService(database)
     account = AccountService(database, clock)
