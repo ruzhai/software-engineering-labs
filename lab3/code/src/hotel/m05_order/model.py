@@ -73,6 +73,7 @@ class Order:
     checked_in_at: datetime | None = None
     checked_out_at: datetime | None = None
     items: list[OrderItem] = field(default_factory=list)
+    store_name: str = ""
 
 
 @dataclass(frozen=True)

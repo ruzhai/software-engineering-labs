@@ -16,6 +16,28 @@ def parse_date(text: str, field: str) -> date:
         raise ValidationError("日期格式应为 YYYY-MM-DD", field=field) from exc
 
 
+ORDER_STATUS_LABEL = {
+    "PENDING_PAYMENT": "待支付",
+    "CONFIRMED": "已确认",
+    "CHECKED_IN": "已入住",
+    "CHECKED_OUT": "已退房",
+    "CANCELLED": "已取消",
+    "NO_SHOW": "未到店",
+}
+
+
+def make_table(parent, columns: tuple[str, ...], width: int = 150):
+    """统一的只读表格。"""
+    from tkinter import ttk  # pylint: disable=import-outside-toplevel
+
+    tree = ttk.Treeview(parent, columns=columns, show="headings", height=14)
+    for column in columns:
+        tree.heading(column, text=column)
+        tree.column(column, width=width, anchor="center")
+    tree.pack(fill="both", expand=True, padx=12, pady=8)
+    return tree
+
+
 def guarded(func):
     """把业务异常转成提示框，绝不让异常冒到 Tk 主循环。"""
 

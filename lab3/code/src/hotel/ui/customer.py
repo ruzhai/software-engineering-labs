@@ -11,7 +11,7 @@ from hotel.core.money import format_cents
 from hotel.m05_order.model import OrderStatus
 from hotel.m05_order.service import RoomRequest
 from hotel.ui.app import Screen
-from hotel.ui.common import guarded, parse_date
+from hotel.ui.common import ORDER_STATUS_LABEL, guarded, parse_date
 
 
 class QueryScreen(Screen):
@@ -62,20 +62,30 @@ class ResultScreen(Screen):
 
     def build(self) -> None:
         ttk.Label(self, text="选择房型后进入下单", padding=8).pack(anchor="w", padx=8)
-        columns = ("门店", "房型", "床型", "可住人数", "房间数", "维修中")
+        columns = ("门店", "房型", "床型", "可住人数", "房间数", "维修中", "可售")
         self.tree = ttk.Treeview(self, columns=columns, show="headings", height=14)
         for column in columns:
             self.tree.heading(column, text=column)
-            self.tree.column(column, width=140, anchor="center")
+            self.tree.column(column, width=125, anchor="center")
         self.tree.pack(fill="both", expand=True, padx=12, pady=6)
         self.rows: dict[str, object] = {}
-        ttk.Button(self, text="下一步：确认订单", command=self.choose).pack(pady=10)
+        actions = ttk.Frame(self)
+        actions.pack(pady=10)
+        ttk.Button(actions, text="查看详情", command=self.detail).pack(side="left", padx=6)
+        ttk.Button(actions, text="下一步：确认订单", command=self.choose).pack(side="left", padx=6)
         self.load(self.app.search_results)
 
     def load(self, results) -> None:
         self.tree.delete(*self.tree.get_children())
         self.rows.clear()
+        check_in = self.app.search_params.get("check_in")
         for item in results:
+            remaining = "—"
+            if check_in is not None:
+                # REQ-002 要求展示剩余数量，取入住当晚的线上剩余可售。
+                remaining = self.services.inventory.query(
+                    item.room_type_id, check_in
+                ).online_remaining
             row_id = self.tree.insert(
                 "",
                 "end",
@@ -86,6 +96,7 @@ class ResultScreen(Screen):
                     item.max_guests,
                     item.total_rooms,
                     item.under_repair,
+                    remaining,
                 ),
             )
             self.rows[row_id] = item
@@ -100,6 +111,19 @@ class ResultScreen(Screen):
             return
         self.app.selected_room_type = self.rows[selection[0]]
         self.app.show(OrderScreen)
+
+    @guarded
+    def detail(self) -> None:
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showinfo("提示", "请先选择一个房型")
+            return
+        self.app.selected_room_type = self.rows[selection[0]]
+        from hotel.ui.customer_extra import (  # pylint: disable=import-outside-toplevel
+            HotelDetailScreen,
+        )
+
+        self.app.show(HotelDetailScreen)
 
 
 class OrderScreen(Screen):
@@ -217,8 +241,8 @@ class CustomerOrdersScreen(Screen):
                 "end",
                 values=(
                     order.order_no,
-                    order.store_id[-6:],
-                    order.status.value,
+                    order.store_name,
+                    ORDER_STATUS_LABEL.get(order.status.value, order.status.value),
                     order.check_in_date,
                     order.check_out_date,
                     format_cents(order.total_cents),

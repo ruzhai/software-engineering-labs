@@ -491,6 +491,13 @@ class OrderService:
                 raise ConflictError("该申请已处理过了", field="request_id")
             repo.set_modify_request_status(request_id, ModifyRequestStatus.REJECTED, actor.user_id)
 
+    def list_cancel_requests(self, actor: Session, store_id: str) -> list[CancelRequest]:
+        if actor.role is not Role.STORE_MANAGER or actor.store_id != store_id:
+            raise PermissionDenied("只有本店店长能查看取消申请")
+        with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
+            return OrderRepository(conn).list_pending_cancel_requests(store_id)
+
     def list_pending_modify_requests(self, actor: Session, store_id: str) -> list[ModifyRequest]:
         if actor.role is not Role.STORE_MANAGER or actor.store_id != store_id:
             raise PermissionDenied("只有本店店长能查看改期申请")

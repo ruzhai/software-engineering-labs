@@ -81,7 +81,7 @@ class RoomService:
                 action="ROOM_ASSIGNED",
                 object_type="order",
                 object_id=order_id,
-                reason=f"room={room_id}",
+                reason=f"房号 {room.room_no}",
                 after_value=RoomStatus.RESERVED.value,
                 moment=self._clock.now(),
             )

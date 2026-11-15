@@ -5,8 +5,10 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
+from hotel.core.auth import ensure_active
 from hotel.core.db import Database, UnitOfWork
-from hotel.core.errors import ConflictError, NotFound, ValidationError
+from hotel.core.errors import ConflictError, NotFound, PermissionDenied, ValidationError
+from hotel.m01_account.model import Role, Session
 from hotel.core.ids import new_id
 from hotel.m02_store.model import (
     Area,
@@ -138,6 +140,13 @@ class StoreService:
         except sqlite3.IntegrityError as exc:
             raise ConflictError("房号已存在", field="room_no") from exc
         return rooms
+
+    def list_stores_of_area(self, actor: Session) -> list[Store]:
+        if actor.role is not Role.AREA_MANAGER:
+            raise PermissionDenied("只有片区负责人能查看片区门店")
+        with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
+            return StoreRepository(conn).list_of_area(actor.area_id)
 
     def list_room_types_of_store(self, store_id: str) -> list[RoomType]:
         with UnitOfWork(self._db) as conn:

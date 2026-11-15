@@ -28,6 +28,22 @@ class PricingRepository:
         row = self.conn.execute("SELECT area_id FROM store WHERE id = ?", (store_id,)).fetchone()
         return row["area_id"] if row else None
 
+    def list_ranges(self, store_id: str) -> list[PriceRange]:
+        rows = self.conn.execute(
+            "SELECT * FROM price_range WHERE store_id = ? ORDER BY effective_date DESC",
+            (store_id,),
+        ).fetchall()
+        return [
+            PriceRange(
+                id=row["id"],
+                store_id=row["store_id"],
+                effective_date=date.fromisoformat(row["effective_date"]),
+                min_cents=row["min_cents"],
+                max_cents=row["max_cents"],
+            )
+            for row in rows
+        ]
+
     def insert_price_range(self, price_range: PriceRange) -> None:
         self.conn.execute(
             "INSERT INTO price_range (id, store_id, effective_date, min_cents, max_cents)"

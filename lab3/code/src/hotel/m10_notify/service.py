@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 
+from hotel.core.auth import ensure_active
 from hotel.core.clock import Clock
 from hotel.core.db import Database, UnitOfWork
 from hotel.core.errors import NotFound, PermissionDenied
@@ -111,6 +112,13 @@ class NotificationService:
                     )
                     retried += 1
         return retried
+
+    def list_for_store(self, actor: Session, store_id: str) -> list[Notification]:
+        if actor.role not in (Role.FRONT_DESK, Role.STORE_MANAGER) or actor.store_id != store_id:
+            raise PermissionDenied("只能查看本店通知")
+        with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
+            return NotificationRepository(conn).list_by_store(store_id)
 
     def list_for_order(self, actor: Session, order_id: str) -> list[Notification]:
         with UnitOfWork(self._db) as conn:

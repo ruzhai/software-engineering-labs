@@ -225,6 +225,41 @@ class AccountService:
             ensure_active(conn, actor)
             UserRepository(conn).set_status(user_id, UserStatus.DISABLED)
 
+    def find_customer_by_phone(self, actor: Session, phone: str) -> User:
+        """前台开单时按手机号找顾客。"""
+        if actor.role not in (Role.FRONT_DESK, Role.STORE_MANAGER):
+            raise PermissionDenied("当前角色不能查询顾客")
+        with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
+            user = UserRepository(conn).get_by_phone(phone)
+        if user is None or user.role is not Role.CUSTOMER:
+            raise NotFound("未找到该手机号对应的顾客", field="phone")
+        return user
+
+    def list_store_managers(self, actor: Session) -> list[User]:
+        """片区负责人查看本片区各店店长，用于调动与停用。"""
+        if actor.role is not Role.AREA_MANAGER:
+            raise PermissionDenied("只有片区负责人能查看店长名册")
+        with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
+            rows = conn.execute(
+                "SELECT u.* FROM user u JOIN store s ON s.id = u.store_id"
+                " WHERE s.area_id = ? AND u.role = 'STORE_MANAGER' ORDER BY u.name",
+                (actor.area_id,),
+            ).fetchall()
+        return [
+            User(
+                id=row["id"],
+                name=row["name"],
+                phone=row["phone"],
+                role=Role(row["role"]),
+                status=UserStatus(row["status"]),
+                store_id=row["store_id"],
+                area_id=row["area_id"],
+            )
+            for row in rows
+        ]
+
     def list_staff_of_store(self, actor: Session, store_id: str) -> list[User]:
         self.require_store(actor, store_id)
         with UnitOfWork(self._db) as conn:

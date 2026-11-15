@@ -79,6 +79,14 @@ class NotificationRepository:
         ).fetchall()
         return [_to_notification(row) for row in rows]
 
+    def list_by_store(self, store_id: str) -> list[Notification]:
+        rows = self.conn.execute(
+            "SELECT n.* FROM notification n JOIN orders o ON o.id = n.order_id"
+            " WHERE o.store_id = ? ORDER BY n.id DESC LIMIT 200",
+            (store_id,),
+        ).fetchall()
+        return [_to_notification(row) for row in rows]
+
     def list_by_order(self, order_id: str) -> list[Notification]:
         rows = self.conn.execute(
             "SELECT * FROM notification WHERE order_id = ? ORDER BY id", (order_id,)

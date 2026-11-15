@@ -84,7 +84,11 @@ class OrderRepository:
         self.conn.execute("DELETE FROM order_item WHERE order_id = ?", (order_id,))
 
     def get_order(self, order_id: str) -> Order | None:
-        row = self.conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        row = self.conn.execute(
+            "SELECT o.*, s.name AS store_name FROM orders o"
+            " JOIN store s ON s.id = o.store_id WHERE o.id = ?",
+            (order_id,),
+        ).fetchone()
         if row is None:
             return None
         order = Order(
@@ -102,6 +106,7 @@ class OrderRepository:
             created_at=datetime.fromisoformat(row["created_at"]),
             checked_in_at=_parse_dt(row["checked_in_at"]),
             checked_out_at=_parse_dt(row["checked_out_at"]),
+            store_name=row["store_name"],
         )
         order.items = self.get_items(order_id)
         return order
@@ -208,6 +213,16 @@ class OrderRepository:
             (order_id,),
         ).fetchone()
         return self.get_cancel_request(row["id"]) if row else None
+
+    def list_pending_cancel_requests(self, store_id: str) -> list[CancelRequest]:
+        rows = self.conn.execute(
+            "SELECT c.id FROM cancel_request c JOIN orders o ON o.id = c.order_id"
+            " WHERE o.store_id = ? AND c.status = 'PENDING' ORDER BY c.created_at",
+            (store_id,),
+        ).fetchall()
+        return [
+            request for row in rows if (request := self.get_cancel_request(row["id"])) is not None
+        ]
 
     def set_cancel_request_status(
         self, request_id: str, status: CancelRequestStatus, approver: str

@@ -54,6 +54,15 @@ class PricingService:
             repo.insert_price_range(price_range)
         return price_range
 
+    def list_price_ranges(self, actor: Session, store_id: str) -> list[PriceRange]:
+        if actor.role not in (Role.STORE_MANAGER, Role.AREA_MANAGER):
+            raise PermissionDenied("当前角色不能查看价格区间")
+        if actor.role is Role.STORE_MANAGER and actor.store_id != store_id:
+            raise PermissionDenied("只能查看本店价格区间")
+        with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
+            return PricingRepository(conn).list_ranges(store_id)
+
     def get_price(self, room_type_id: str, on_date: date) -> DailyPrice:
         with UnitOfWork(self._db) as conn:
             price = PricingRepository(conn).get_price(room_type_id, on_date)

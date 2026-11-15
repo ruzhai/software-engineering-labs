@@ -127,7 +127,7 @@ class PaymentService:
                     action="PAYMENT_CONFIRMED",
                     object_type="order",
                     object_id=order.id,
-                    reason=f"pay_no={pay_no}",
+                    reason=f"订单 {order.order_no}",
                     before_value=OrderStatus.PENDING_PAYMENT.value,
                     after_value=OrderStatus.CONFIRMED.value,
                     moment=now,

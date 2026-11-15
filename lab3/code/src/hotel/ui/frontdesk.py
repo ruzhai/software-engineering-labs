@@ -130,6 +130,10 @@ class CheckInScreen(Screen):
         self.tree.delete(*self.tree.get_children())
         self.orders.clear()
         store_id = self.app.session.store_id
+        type_names = {
+            room_type.id: room_type.name
+            for room_type in self.services.store.list_room_types_of_store(store_id)
+        }
         for order in self.services.order.list_store_orders(self.app.session, store_id):
             if order.status is not OrderStatus.CONFIRMED:
                 continue
@@ -142,7 +146,7 @@ class CheckInScreen(Screen):
                     order.check_in_date,
                     order.check_out_date,
                     format_cents(order.total_cents),
-                    room_type_id[-6:],
+                    type_names.get(room_type_id, ""),
                 ),
             )
             self.orders[row] = order

@@ -81,6 +81,12 @@ class StoreRepository:
         row = self.conn.execute("SELECT * FROM store WHERE id = ?", (store_id,)).fetchone()
         return _to_store(row) if row else None
 
+    def list_of_area(self, area_id: str) -> list[Store]:
+        rows = self.conn.execute(
+            "SELECT * FROM store WHERE area_id = ? ORDER BY name", (area_id,)
+        ).fetchall()
+        return [_to_store(row) for row in rows]
+
     def update_store_status(self, store_id: str, status: StoreStatus) -> None:
         self.conn.execute("UPDATE store SET status = ? WHERE id = ?", (status.value, store_id))
 

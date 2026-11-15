@@ -16,6 +16,7 @@ class Screen(ttk.Frame):
 
     def __init__(self, app: "App") -> None:
         super().__init__(app.body)
+        self.pack(fill="both", expand=True)
         self.app = app
         self.services = app.services
         self.build()
@@ -67,44 +68,47 @@ class App(tk.Tk):
         ttk.Label(self.toolbar, text=f"{session.name}（{session.role.value}）").pack(side="left")
         ttk.Button(self.toolbar, text="退出登录", command=self.show_login).pack(side="right")
 
-        from hotel.ui.customer import (  # pylint: disable=import-outside-toplevel
-            CustomerOrdersScreen,
-            QueryScreen,
+        from hotel.ui import (  # pylint: disable=import-outside-toplevel
+            customer,
+            customer_extra,
+            frontdesk,
+            frontdesk_extra,
+            manager,
+            manager_extra,
+            platform,
         )
-        from hotel.ui.frontdesk import (  # pylint: disable=import-outside-toplevel
-            BoardScreen,
-            CheckInScreen,
-            CheckOutScreen,
-        )
-        from hotel.ui.manager import PricingScreen  # pylint: disable=import-outside-toplevel
+
+        def button(label, screen_class):
+            ttk.Button(self.toolbar, text=label, command=lambda: self.show(screen_class)).pack(
+                side="left", padx=4
+            )
 
         if session.role is Role.CUSTOMER:
-            ttk.Button(self.toolbar, text="查询房型", command=lambda: self.show(QueryScreen)).pack(
-                side="left", padx=4
-            )
-            ttk.Button(
-                self.toolbar, text="我的订单", command=lambda: self.show(CustomerOrdersScreen)
-            ).pack(side="left", padx=4)
-            self.show(QueryScreen)
+            button("查询房型", customer.QueryScreen)
+            button("我的订单", customer.CustomerOrdersScreen)
+            button("提交评价", customer_extra.ReviewScreen)
+            self.show(customer.QueryScreen)
         elif session.role is Role.FRONT_DESK:
-            ttk.Button(self.toolbar, text="房态看板", command=lambda: self.show(BoardScreen)).pack(
-                side="left", padx=4
-            )
-            ttk.Button(
-                self.toolbar, text="办理入住", command=lambda: self.show(CheckInScreen)
-            ).pack(side="left", padx=4)
-            ttk.Button(
-                self.toolbar, text="办理退房", command=lambda: self.show(CheckOutScreen)
-            ).pack(side="left", padx=4)
-            self.show(BoardScreen)
+            button("房态看板", frontdesk.BoardScreen)
+            button("办理入住", frontdesk.CheckInScreen)
+            button("办理退房", frontdesk.CheckOutScreen)
+            button("客房打扫", frontdesk_extra.HousekeepingScreen)
+            button("前台开单", frontdesk_extra.WalkInScreen)
+            button("消息中心", manager_extra.MessageScreen)
+            self.show(frontdesk.BoardScreen)
         elif session.role is Role.STORE_MANAGER:
-            ttk.Button(
-                self.toolbar, text="改价与审批", command=lambda: self.show(PricingScreen)
-            ).pack(side="left", padx=4)
-            self.show(PricingScreen)
+            button("改价与审批", manager.PricingScreen)
+            button("审批中心", manager_extra.ApprovalScreen)
+            button("本店员工", manager_extra.StoreStaffScreen)
+            button("消息中心", manager_extra.MessageScreen)
+            button("操作日志", manager_extra.AuditScreen)
+            self.show(manager.PricingScreen)
         else:
-            messagebox.showinfo("提示", "片区负责人端仅提供数据服务，暂无界面。")
-            self.show_login()
+            button("片区概览", platform.RegionScreen)
+            button("价格区间", platform.PriceRangeScreen)
+            button("店长名册", platform.RosterScreen)
+            button("操作日志", manager_extra.AuditScreen)
+            self.show(platform.RegionScreen)
 
 
 class LoginScreen(Screen):

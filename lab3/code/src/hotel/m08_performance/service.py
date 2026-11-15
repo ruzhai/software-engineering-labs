@@ -81,56 +81,72 @@ class PerformanceService:
         with UnitOfWork(self._db) as conn:
             return ReviewRepository(conn).list_of_store(store_id)
 
-    def aggregate_performance(
-        self, actor: Session, *, store_id: str, start: date, end: date, period: str
+    def snapshot_performance(
+        self, actor: Session, *, store_id: str, start: date, end: date
     ) -> Performance:
+        """只看不落库，供片区概览反复刷新。"""
+        self._check_performance_scope(actor, store_id)
+        if end < start:
+            raise ValidationError("结束日期不能早于开始日期", field="end")
+        with UnitOfWork(self._db) as conn:
+            return self._compute(conn, store_id, start, end, "snapshot")
+
+    def _check_performance_scope(self, actor: Session, store_id: str) -> None:
         if actor.role is Role.STORE_MANAGER and actor.store_id != store_id:
             raise PermissionDenied("只能汇总本店绩效")
         if actor.role is Role.AREA_MANAGER:
-            row = self._conn_scalar(
+            area_id = self._conn_scalar(
                 "SELECT area_id FROM store WHERE id = ?", (store_id,), "area_id"
             )
-            if row != actor.area_id:
+            if area_id != actor.area_id:
                 raise PermissionDenied("只能汇总本片区门店的绩效")
         if actor.role not in (Role.STORE_MANAGER, Role.AREA_MANAGER):
             raise PermissionDenied("当前角色不能查看绩效")
+
+    @staticmethod
+    def _compute(conn, store_id: str, start: date, end: date, period: str) -> Performance:
+        days = (end - start).days + 1
+        order_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM orders"
+            " WHERE store_id = ? AND substr(created_at, 1, 10) BETWEEN ? AND ?"
+            " AND status <> 'CANCELLED'",
+            (store_id, start.isoformat(), end.isoformat()),
+        ).fetchone()["n"]
+        total_rooms = conn.execute(
+            "SELECT COUNT(*) AS n FROM room r JOIN room_type t ON t.id = r.room_type_id"
+            " WHERE t.store_id = ?",
+            (store_id,),
+        ).fetchone()["n"]
+        occupied = conn.execute(
+            "SELECT COUNT(DISTINCT o.room_id || '|' || o.stay_date) AS n"
+            " FROM occupancy o JOIN orders od ON od.id = o.order_id"
+            " WHERE od.store_id = ? AND o.stay_date BETWEEN ? AND ?",
+            (store_id, start.isoformat(), end.isoformat()),
+        ).fetchone()["n"]
+        avg_score = conn.execute(
+            "SELECT AVG(r.score) AS s FROM review r JOIN orders o ON o.id = r.order_id"
+            " WHERE o.store_id = ? AND r.status = 'PUBLISHED'"
+            " AND substr(r.submitted_at, 1, 10) BETWEEN ? AND ?",
+            (store_id, start.isoformat(), end.isoformat()),
+        ).fetchone()["s"]
+        capacity = total_rooms * days
+        return Performance(
+            id=new_id("perf"),
+            store_id=store_id,
+            period=period,
+            order_count=int(order_count),
+            occupancy_rate=round(occupied / capacity, 4) if capacity else 0.0,
+            avg_score=round(float(avg_score), 2) if avg_score is not None else 0.0,
+        )
+
+    def aggregate_performance(
+        self, actor: Session, *, store_id: str, start: date, end: date, period: str
+    ) -> Performance:
+        self._check_performance_scope(actor, store_id)
         if end < start:
             raise ValidationError("结束日期不能早于开始日期", field="end")
-
-        days = (end - start).days + 1
         with UnitOfWork(self._db) as conn:
-            order_count = conn.execute(
-                "SELECT COUNT(*) AS n FROM orders"
-                " WHERE store_id = ? AND substr(created_at, 1, 10) BETWEEN ? AND ?"
-                " AND status <> 'CANCELLED'",
-                (store_id, start.isoformat(), end.isoformat()),
-            ).fetchone()["n"]
-            total_rooms = conn.execute(
-                "SELECT COUNT(*) AS n FROM room r JOIN room_type t ON t.id = r.room_type_id"
-                " WHERE t.store_id = ?",
-                (store_id,),
-            ).fetchone()["n"]
-            occupied = conn.execute(
-                "SELECT COUNT(DISTINCT o.room_id || '|' || o.stay_date) AS n"
-                " FROM occupancy o JOIN orders od ON od.id = o.order_id"
-                " WHERE od.store_id = ? AND o.stay_date BETWEEN ? AND ?",
-                (store_id, start.isoformat(), end.isoformat()),
-            ).fetchone()["n"]
-            avg_score = conn.execute(
-                "SELECT AVG(r.score) AS s FROM review r JOIN orders o ON o.id = r.order_id"
-                " WHERE o.store_id = ? AND r.status = 'PUBLISHED'"
-                " AND substr(r.submitted_at, 1, 10) BETWEEN ? AND ?",
-                (store_id, start.isoformat(), end.isoformat()),
-            ).fetchone()["s"]
-            capacity = total_rooms * days
-            performance = Performance(
-                id=new_id("perf"),
-                store_id=store_id,
-                period=period,
-                order_count=int(order_count),
-                occupancy_rate=round(occupied / capacity, 4) if capacity else 0.0,
-                avg_score=round(float(avg_score), 2) if avg_score is not None else 0.0,
-            )
+            performance = self._compute(conn, store_id, start, end, period)
             ReviewRepository(conn).insert_performance(performance)
         return performance
 
