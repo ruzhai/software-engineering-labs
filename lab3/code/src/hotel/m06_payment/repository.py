@@ -95,6 +95,14 @@ class PaymentRepository:
             ),
         )
 
+    def sum_refunded(self, order_id: str) -> int:
+        row = self.conn.execute(
+            "SELECT COALESCE(SUM(amount_cents), 0) AS n FROM refund"
+            " WHERE order_id = ? AND status = 'SUCCESS'",
+            (order_id,),
+        ).fetchone()
+        return int(row["n"])
+
     def refund_of_order(self, order_id: str) -> Refund | None:
         row = self.conn.execute(
             "SELECT * FROM refund WHERE order_id = ? LIMIT 1", (order_id,)

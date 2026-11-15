@@ -12,6 +12,7 @@ from hotel.m01_account.service import AccountService
 from hotel.m04_inventory.service import InventoryService
 from hotel.m05_order.model import OrderStatus, can_transition
 from hotel.m05_order.service import OrderService, RoomRequest
+from hotel.m06_payment.repository import PaymentRepository
 
 CHECK_IN = date(2026, 11, 20)
 CHECK_OUT = date(2026, 11, 22)
@@ -256,7 +257,107 @@ def test_no_show_order_can_be_cancelled_by_request(
     cancelled = wired_order_service.approve_cancel_request(shop["manager"], request.id)
 
     assert cancelled.status is OrderStatus.CANCELLED
-    from hotel.m06_payment.repository import PaymentRepository
-
     with database.connect() as conn:
         assert PaymentRepository(conn).refund_of_order(order.id) is None
+
+
+def test_modify_with_refund_before_deadline_needs_no_approval(
+    shop: dict,
+    wired_order_service: OrderService,
+    payment_service,
+    database,
+) -> None:
+    order = _order(shop, wired_order_service, request_no="mod-free")
+    payment_service.pay(payment_service.create_payment(shop["customer"], order.id).pay_no)
+
+    modified = wired_order_service.modify_order(
+        shop["customer"],
+        order.id,
+        items=[RoomRequest(shop["room_type"].id, 1)],
+        check_in=CHECK_IN,
+        check_out=date(2026, 11, 21),
+    )
+
+    assert modified.check_out_date == date(2026, 11, 21)
+    assert modified.total_cents == 50_000
+    with database.connect() as conn:
+        assert PaymentRepository(conn).sum_refunded(order.id) == 50_000
+
+
+def test_modify_with_refund_after_deadline_needs_manager_approval(
+    shop: dict,
+    wired_order_service: OrderService,
+    payment_service,
+    clock: FakeClock,
+) -> None:
+    order = _order(shop, wired_order_service, request_no="mod-approve")
+    payment_service.pay(payment_service.create_payment(shop["customer"], order.id).pay_no)
+    clock.set(datetime(2026, 11, 20, 19, 0))
+
+    with pytest.raises(ConflictError):
+        wired_order_service.modify_order(
+            shop["customer"],
+            order.id,
+            items=[RoomRequest(shop["room_type"].id, 1)],
+            check_in=CHECK_IN,
+            check_out=date(2026, 11, 21),
+        )
+
+    request = wired_order_service.request_modify(
+        shop["customer"],
+        order.id,
+        items=[RoomRequest(shop["room_type"].id, 1)],
+        check_in=CHECK_IN,
+        check_out=date(2026, 11, 21),
+    )
+    with pytest.raises(PermissionDenied):
+        wired_order_service.approve_modify_request(shop["customer"], request.id)
+
+    approved = wired_order_service.approve_modify_request(shop["manager"], request.id)
+    assert approved.check_out_date == date(2026, 11, 21)
+    assert approved.total_cents == 50_000
+
+
+def test_modify_request_rejected_keeps_original_order(
+    shop: dict,
+    wired_order_service: OrderService,
+    payment_service,
+    clock: FakeClock,
+) -> None:
+    order = _order(shop, wired_order_service, request_no="mod-reject")
+    payment_service.pay(payment_service.create_payment(shop["customer"], order.id).pay_no)
+    clock.set(datetime(2026, 11, 20, 19, 0))
+    request = wired_order_service.request_modify(
+        shop["customer"],
+        order.id,
+        items=[RoomRequest(shop["room_type"].id, 1)],
+        check_in=CHECK_IN,
+        check_out=date(2026, 11, 21),
+    )
+
+    wired_order_service.reject_modify_request(shop["manager"], request.id)
+
+    unchanged = wired_order_service.get_order(shop["customer"], order.id)
+    assert unchanged.check_out_date == CHECK_OUT
+    assert unchanged.total_cents == 100_000
+
+
+def test_modify_to_more_expensive_needs_no_approval(
+    shop: dict,
+    wired_order_service: OrderService,
+    payment_service,
+    clock: FakeClock,
+) -> None:
+    order = _order(shop, wired_order_service, request_no="mod-expensive")
+    payment_service.pay(payment_service.create_payment(shop["customer"], order.id).pay_no)
+    clock.set(datetime(2026, 11, 20, 19, 0))
+
+    modified = wired_order_service.modify_order(
+        shop["customer"],
+        order.id,
+        items=[RoomRequest(shop["twin"].id, 1)],
+        check_in=CHECK_IN,
+        check_out=CHECK_OUT,
+    )
+
+    assert modified.total_cents == 120_000

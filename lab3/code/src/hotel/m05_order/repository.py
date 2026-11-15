@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import date, datetime
 
-from hotel.m05_order.model import CancelRequest, CancelRequestStatus, Order, OrderItem, OrderStatus
+from hotel.m05_order.model import (
+    CancelRequest,
+    CancelRequestStatus,
+    ModifyRequest,
+    ModifyRequestStatus,
+    Order,
+    OrderItem,
+    OrderStatus,
+)
 
 
 def _parse_dt(value: str | None) -> datetime | None:
@@ -207,3 +216,71 @@ class OrderRepository:
             "UPDATE cancel_request SET status = ?, approver = ? WHERE id = ?",
             (status.value, approver, request_id),
         )
+
+    # ---------- 改期申请 ----------
+
+    def insert_modify_request(self, request: ModifyRequest) -> None:
+        self.conn.execute(
+            "INSERT INTO modify_request"
+            " (id, order_id, items_json, check_in_date, check_out_date,"
+            "  old_total_cents, new_total_cents, applicant, approver, status, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                request.id,
+                request.order_id,
+                json.dumps([list(item) for item in request.items], ensure_ascii=False),
+                request.check_in_date.isoformat(),
+                request.check_out_date.isoformat(),
+                request.old_total_cents,
+                request.new_total_cents,
+                request.applicant,
+                request.approver,
+                request.status.value,
+                request.created_at.isoformat(),
+            ),
+        )
+
+    def get_modify_request(self, request_id: str) -> ModifyRequest | None:
+        row = self.conn.execute(
+            "SELECT * FROM modify_request WHERE id = ?", (request_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return ModifyRequest(
+            id=row["id"],
+            order_id=row["order_id"],
+            items=tuple((item[0], int(item[1])) for item in json.loads(row["items_json"])),
+            check_in_date=date.fromisoformat(row["check_in_date"]),
+            check_out_date=date.fromisoformat(row["check_out_date"]),
+            old_total_cents=row["old_total_cents"],
+            new_total_cents=row["new_total_cents"],
+            applicant=row["applicant"],
+            approver=row["approver"],
+            status=ModifyRequestStatus(row["status"]),
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
+    def set_modify_request_status(
+        self, request_id: str, status: ModifyRequestStatus, approver: str
+    ) -> None:
+        self.conn.execute(
+            "UPDATE modify_request SET status = ?, approver = ? WHERE id = ?",
+            (status.value, approver, request_id),
+        )
+
+    def pending_modify_request(self, order_id: str) -> ModifyRequest | None:
+        row = self.conn.execute(
+            "SELECT id FROM modify_request WHERE order_id = ? AND status = 'PENDING'",
+            (order_id,),
+        ).fetchone()
+        return self.get_modify_request(row["id"]) if row else None
+
+    def list_pending_modify_requests(self, store_id: str) -> list[ModifyRequest]:
+        rows = self.conn.execute(
+            "SELECT m.id FROM modify_request m JOIN orders o ON o.id = m.order_id"
+            " WHERE o.store_id = ? AND m.status = 'PENDING' ORDER BY m.created_at",
+            (store_id,),
+        ).fetchall()
+        return [
+            request for row in rows if (request := self.get_modify_request(row["id"])) is not None
+        ]

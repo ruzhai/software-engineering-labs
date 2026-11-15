@@ -28,6 +28,8 @@ from hotel.m04_inventory.service import InventoryService
 from hotel.m05_order.model import (
     CancelRequest,
     CancelRequestStatus,
+    ModifyRequest,
+    ModifyRequestStatus,
     Order,
     OrderItem,
     OrderStatus,
@@ -382,20 +384,164 @@ class OrderService:
                 if order is None:
                     raise NotFound("订单不存在", field="order_id")
                 self._check_scope(conn, actor, order)
-                if order.status is not OrderStatus.CONFIRMED:
-                    raise ConflictError("只有已确认且未入住的订单可以修改", field="status")
+                self._ensure_modifiable(order)
+                self._ensure_no_pending_request(repo, order)
 
-                # 先释放旧占用再占新日期：同一次事务里，新日期不够就整体回滚。
-                self._release_all(conn, order.items)
                 built = self._build_items(conn, order.store_id, merged, check_in, check_out)
-                self._reserve_all(conn, built)
-
-                repo.delete_items(order_id)
-                for item in built:
-                    repo.insert_item(replace(item, order_id=order_id))
-                repo.set_dates(order_id, check_in, check_out)
-                repo.set_total(order_id, sum(item.subtotal_cents for item in built))
+                new_total = sum(item.subtotal_cents for item in built)
+                if self._needs_approval(order, new_total):
+                    raise ConflictError("改期后需要退款，请提交改期申请由店长审批", field="status")
+                self._apply_modify(conn, repo, order, built, check_in, check_out, new_total)
         return self.get_order(actor, order_id)
+
+    def request_modify(
+        self,
+        actor: Session,
+        order_id: str,
+        *,
+        items: list[RoomRequest],
+        check_in: date,
+        check_out: date,
+    ) -> ModifyRequest:
+        """改期涉及退款且已过取消截止时间时，先提交申请（REQ-031）。"""
+        self._validate_stay(check_in, check_out)
+        if not items:
+            raise ValidationError("至少选择一个房型", field="items")
+        merged = self._merge(items)
+        with acquire_all(self._price_locks(merged, check_in, check_out), self._db.lock_timeout):
+            with UnitOfWork(self._db) as conn:
+                repo = OrderRepository(conn)
+                order = repo.get_order(order_id)
+                if order is None:
+                    raise NotFound("订单不存在", field="order_id")
+                self._check_scope(conn, actor, order)
+                self._ensure_modifiable(order)
+                self._ensure_no_pending_request(repo, order)
+
+                built = self._build_items(conn, order.store_id, merged, check_in, check_out)
+                new_total = sum(item.subtotal_cents for item in built)
+                if not self._needs_approval(order, new_total):
+                    raise ConflictError("这次改期不需要审批，请直接修改", field="status")
+                request = ModifyRequest(
+                    id=new_id("mr"),
+                    order_id=order_id,
+                    items=tuple((item.room_type_id, item.qty) for item in merged),
+                    check_in_date=check_in,
+                    check_out_date=check_out,
+                    old_total_cents=order.total_cents,
+                    new_total_cents=new_total,
+                    applicant=actor.user_id,
+                    approver=None,
+                    status=ModifyRequestStatus.PENDING,
+                    created_at=self._clock.now(),
+                )
+                repo.insert_modify_request(request)
+        return request
+
+    def approve_modify_request(self, actor: Session, request_id: str) -> Order:
+        if actor.role is not Role.STORE_MANAGER:
+            raise PermissionDenied("只有店长能审批改期申请")
+        request = self._pending_modify_request(request_id)
+        merged = [RoomRequest(room_type_id, qty) for room_type_id, qty in request.items]
+        with acquire_all(
+            self._price_locks(merged, request.check_in_date, request.check_out_date),
+            self._db.lock_timeout,
+        ):
+            with UnitOfWork(self._db) as conn:
+                ensure_active(conn, actor)
+                repo = OrderRepository(conn)
+                order = repo.get_order(request.order_id)
+                if order is None:
+                    raise NotFound("订单不存在", field="order_id")
+                if order.store_id != actor.store_id:
+                    raise PermissionDenied("只能审批本店的改期申请")
+                self._ensure_modifiable(order)
+                built = self._build_items(
+                    conn, order.store_id, merged, request.check_in_date, request.check_out_date
+                )
+                new_total = sum(item.subtotal_cents for item in built)
+                self._apply_modify(
+                    conn,
+                    repo,
+                    order,
+                    built,
+                    request.check_in_date,
+                    request.check_out_date,
+                    new_total,
+                )
+                repo.set_modify_request_status(
+                    request_id, ModifyRequestStatus.APPROVED, actor.user_id
+                )
+                order_id = order.id
+        return self.get_order(actor, order_id)
+
+    def reject_modify_request(self, actor: Session, request_id: str) -> None:
+        if actor.role is not Role.STORE_MANAGER:
+            raise PermissionDenied("只有店长能审批改期申请")
+        with UnitOfWork(self._db) as conn:
+            ensure_active(conn, actor)
+            repo = OrderRepository(conn)
+            request = repo.get_modify_request(request_id)
+            if request is None:
+                raise NotFound("改期申请不存在", field="request_id")
+            order = repo.get_order(request.order_id)
+            if order is None or order.store_id != actor.store_id:
+                raise PermissionDenied("只能审批本店的改期申请")
+            if request.status is not ModifyRequestStatus.PENDING:
+                raise ConflictError("该申请已处理过了", field="request_id")
+            repo.set_modify_request_status(request_id, ModifyRequestStatus.REJECTED, actor.user_id)
+
+    def list_pending_modify_requests(self, actor: Session, store_id: str) -> list[ModifyRequest]:
+        if actor.role is not Role.STORE_MANAGER or actor.store_id != store_id:
+            raise PermissionDenied("只有本店店长能查看改期申请")
+        with UnitOfWork(self._db) as conn:
+            return OrderRepository(conn).list_pending_modify_requests(store_id)
+
+    def _pending_modify_request(self, request_id: str) -> ModifyRequest:
+        with UnitOfWork(self._db) as conn:
+            request = OrderRepository(conn).get_modify_request(request_id)
+        if request is None:
+            raise NotFound("改期申请不存在", field="request_id")
+        if request.status is not ModifyRequestStatus.PENDING:
+            raise ConflictError("该申请已处理过了", field="request_id")
+        return request
+
+    @staticmethod
+    def _ensure_modifiable(order: Order) -> None:
+        if order.status is not OrderStatus.CONFIRMED:
+            raise ConflictError("只有已确认且未入住的订单可以修改", field="status")
+
+    @staticmethod
+    def _ensure_no_pending_request(repo: OrderRepository, order: Order) -> None:
+        if repo.pending_modify_request(order.id) is not None:
+            raise ConflictError("该订单已有待审批的改期申请", field="order_id")
+
+    def _needs_approval(self, order: Order, new_total_cents: int) -> bool:
+        """降价即产生退款；过了取消截止时间就要按取消规则走审批（REQ-031）。"""
+        return new_total_cents < order.total_cents and self._clock.now() >= self._cancel_deadline(
+            order
+        )
+
+    def _apply_modify(
+        self,
+        conn: sqlite3.Connection,
+        repo: OrderRepository,
+        order: Order,
+        built: list[OrderItem],
+        check_in: date,
+        check_out: date,
+        new_total: int,
+    ) -> None:
+        # 先释放旧占用再占新日期：同一次事务里，新日期不够就整体回滚。
+        self._release_all(conn, order.items)
+        self._reserve_all(conn, built)
+        repo.delete_items(order.id)
+        for item in built:
+            repo.insert_item(replace(item, order_id=order.id))
+        repo.set_dates(order.id, check_in, check_out)
+        repo.set_total(order.id, new_total)
+        if new_total < order.total_cents and self._payment is not None:
+            self._payment.refund_difference(conn, order, order.total_cents - new_total)
 
     # ---------- 状态推进（供 M7 使用） ----------
 

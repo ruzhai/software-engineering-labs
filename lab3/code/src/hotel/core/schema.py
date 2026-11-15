@@ -130,6 +130,19 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         status TEXT NOT NULL,
         created_at TEXT NOT NULL
     )""",
+    """CREATE TABLE IF NOT EXISTS modify_request (
+        id TEXT PRIMARY KEY,
+        order_id TEXT NOT NULL REFERENCES orders(id),
+        items_json TEXT NOT NULL,
+        check_in_date TEXT NOT NULL,
+        check_out_date TEXT NOT NULL,
+        old_total_cents INTEGER NOT NULL,
+        new_total_cents INTEGER NOT NULL,
+        applicant TEXT NOT NULL,
+        approver TEXT,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )""",
     """CREATE TABLE IF NOT EXISTS upgrade_request (
         id TEXT PRIMARY KEY,
         order_id TEXT NOT NULL REFERENCES orders(id),

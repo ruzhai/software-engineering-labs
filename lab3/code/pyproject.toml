@@ -39,6 +39,8 @@ max-line-length = 100
 max-attributes = 20
 max-locals = 25
 max-args = 12
+max-positional-arguments = 8
+max-public-methods = 30
 
 [tool.pylint."messages control"]
 disable = [

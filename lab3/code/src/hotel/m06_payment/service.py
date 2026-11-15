@@ -156,15 +156,44 @@ class PaymentService:
         """由取消流程在同一事务里调用；重复取消只产生一次退款（REQ-009）。"""
         repo = PaymentRepository(conn)
         payment = repo.successful_payment_of_order(order.id)
-        if payment is None or repo.refund_of_order(order.id) is not None:
+        if payment is None:
             return None
+        remaining = payment.amount_cents - repo.sum_refunded(order.id)
+        if remaining <= 0:
+            return None
+        return self._issue_refund(conn, repo, order, payment, remaining, "订单取消退款")
+
+    def refund_difference(
+        self, conn: sqlite3.Connection, order: Order, amount_cents: int
+    ) -> Refund | None:
+        """改期后金额下降时退差额（REQ-031 多退少补）。"""
+        if amount_cents <= 0:
+            return None
+        repo = PaymentRepository(conn)
+        payment = repo.successful_payment_of_order(order.id)
+        if payment is None:
+            return None
+        refundable = payment.amount_cents - repo.sum_refunded(order.id)
+        return self._issue_refund(
+            conn, repo, order, payment, min(amount_cents, refundable), "订单改期差额退款"
+        )
+
+    def _issue_refund(
+        self,
+        conn: sqlite3.Connection,
+        repo: PaymentRepository,
+        order: Order,
+        payment: Payment,
+        amount_cents: int,
+        reason: str,
+    ) -> Refund:
         refund = Refund(
             id=new_id("rfd"),
             refund_no=new_id("refund"),
             order_id=order.id,
             payment_id=payment.id,
-            amount_cents=payment.amount_cents,
-            reason="订单取消",
+            amount_cents=amount_cents,
+            reason=reason,
             status=RefundStatus.SUCCESS,
             refunded_at=self._clock.now(),
         )
@@ -176,8 +205,8 @@ class PaymentService:
             action="REFUND_ISSUED",
             object_type="order",
             object_id=order.id,
-            reason="订单取消退款",
-            after_value=str(refund.amount_cents),
+            reason=reason,
+            after_value=str(amount_cents),
             moment=self._clock.now(),
         )
         return refund

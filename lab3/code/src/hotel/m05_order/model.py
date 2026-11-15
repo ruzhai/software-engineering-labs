@@ -33,6 +33,12 @@ def can_transition(current: OrderStatus, target: OrderStatus) -> bool:
     return target in ALLOWED_TRANSITIONS[current]
 
 
+class ModifyRequestStatus(str, Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
 class CancelRequestStatus(str, Enum):
     PENDING = "PENDING"
     APPROVED = "APPROVED"
@@ -67,6 +73,23 @@ class Order:
     checked_in_at: datetime | None = None
     checked_out_at: datetime | None = None
     items: list[OrderItem] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ModifyRequest:
+    """改期/改房型申请。申请里带完整的目标状态，审批通过后照此执行。"""
+
+    id: str
+    order_id: str
+    items: tuple[tuple[str, int], ...]
+    check_in_date: date
+    check_out_date: date
+    old_total_cents: int
+    new_total_cents: int
+    applicant: str
+    approver: str | None
+    status: ModifyRequestStatus
+    created_at: datetime
 
 
 @dataclass(frozen=True)
