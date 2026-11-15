@@ -6,7 +6,7 @@ import tkinter as tk
 from datetime import date, timedelta
 from tkinter import messagebox, simpledialog, ttk
 
-from hotel.core.errors import NotFound
+from hotel.core.errors import NotFound, ValidationError
 from hotel.core.money import format_cents
 from hotel.m05_order.model import OrderStatus
 from hotel.m05_order.service import RoomRequest
@@ -74,7 +74,10 @@ class QueryScreen(Screen):
     def search(self) -> None:
         check_in = parse_date(self.check_in.get(), "check_in")
         check_out = parse_date(self.check_out.get(), "check_out")
-        guests = int(self.guests.get())
+        try:
+            guests = int(self.guests.get().strip())
+        except ValueError as exc:
+            raise ValidationError("入住人数必须是正整数", field="guests") from exc
         results = self.services.store.list_room_types(self.city.get(), guests)
         self.app.search_params = {
             "check_in": check_in,

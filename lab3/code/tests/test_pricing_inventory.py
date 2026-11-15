@@ -154,3 +154,20 @@ def test_price_range_only_from_area_manager(shop: dict, pricing_service: Pricing
 def test_missing_price_raises(shop: dict, pricing_service: PricingService) -> None:
     with pytest.raises(NotFound):
         pricing_service.get_price(shop["room_type"].id, date(2027, 1, 1))
+
+
+def test_price_range_endpoints_are_inclusive(shop: dict, pricing_service: PricingService) -> None:
+    for cents in (20000, 80000):
+        price = pricing_service.set_price(
+            shop["manager"], room_type_id=shop["room_type"].id, on_date=DAY, price_cents=cents
+        )
+        assert price.price_cents == cents
+
+    for cents in (19999, 80001):
+        with pytest.raises(ValidationError):
+            pricing_service.set_price(
+                shop["manager"],
+                room_type_id=shop["room_type"].id,
+                on_date=DAY,
+                price_cents=cents,
+            )

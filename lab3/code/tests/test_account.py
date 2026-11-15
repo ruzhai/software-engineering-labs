@@ -174,6 +174,16 @@ def test_area_manager_sees_only_store_managers(
     assert [user.role for user in staff] == [Role.STORE_MANAGER]
 
 
+def test_area_manager_can_disable_store_manager_of_own_area(
+    account_service: AccountService, scene: dict
+) -> None:
+    """店长只绑门店，片区要通过门店反查，否则片区负责人永远停用不了店长。"""
+    account_service.disable_user(scene["area_manager"], scene["manager_b"].user_id)
+
+    with pytest.raises(PermissionDenied):
+        account_service.login("13900000003", "secret1")
+
+
 def test_disabled_session_loses_access_immediately(
     account_service: AccountService, scene: dict
 ) -> None:

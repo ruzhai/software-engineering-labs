@@ -209,3 +209,58 @@ def test_gateway_double_charge_is_reconciled(
 
     records = payment_service.reconcile(clock.today())
     assert any(record.diff_type == "DUPLICATE_PAYMENT" for record in records)
+
+
+def test_expiry_boundary_is_strict(
+    shop: dict, order_service: OrderService, payment_service: PaymentService, clock: FakeClock
+) -> None:
+    """REQ-020：正好 15 分钟不释放，超过 1 秒才释放。"""
+    order = _place(shop, order_service, "edge-expire")
+    payment_service.create_payment(shop["customer"], order.id)
+
+    clock.advance(minutes=15)
+    assert payment_service.expire_unpaid_orders() == 0
+    clock.advance(seconds=1)
+    assert payment_service.expire_unpaid_orders() == 1
+
+
+def test_no_show_boundary_starts_at_22(
+    shop: dict, order_service: OrderService, payment_service: PaymentService, clock: FakeClock
+) -> None:
+    clock.set(datetime(2026, 11, 20, 9, 0))
+    order = order_service.create_order(
+        shop["customer"],
+        store_id=shop["store"].id,
+        request_no="edge-no-show",
+        items=[RoomRequest(shop["room_type"].id, 1)],
+        check_in=date(2026, 11, 20),
+        check_out=date(2026, 11, 21),
+    )
+    payment_service.pay(payment_service.create_payment(shop["customer"], order.id).pay_no)
+
+    clock.set(datetime(2026, 11, 20, 21, 59))
+    assert payment_service.mark_no_show() == 0
+    clock.set(datetime(2026, 11, 20, 22, 0))
+    assert payment_service.mark_no_show() == 1
+
+
+def test_overdue_release_boundary_at_next_noon(
+    shop: dict, order_service: OrderService, payment_service: PaymentService, clock: FakeClock
+) -> None:
+    clock.set(datetime(2026, 11, 20, 9, 0))
+    order = order_service.create_order(
+        shop["customer"],
+        store_id=shop["store"].id,
+        request_no="edge-overdue",
+        items=[RoomRequest(shop["room_type"].id, 1)],
+        check_in=date(2026, 11, 20),
+        check_out=date(2026, 11, 21),
+    )
+    payment_service.pay(payment_service.create_payment(shop["customer"], order.id).pay_no)
+    clock.set(datetime(2026, 11, 20, 22, 5))
+    payment_service.mark_no_show()
+
+    clock.set(datetime(2026, 11, 21, 11, 59))
+    assert payment_service.release_overdue_no_show() == 0
+    clock.set(datetime(2026, 11, 21, 12, 0))
+    assert payment_service.release_overdue_no_show() == 1

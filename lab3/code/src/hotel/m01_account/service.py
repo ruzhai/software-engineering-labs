@@ -217,13 +217,23 @@ class AccountService:
             if target.store_id != actor.store_id:
                 raise PermissionDenied("只能停用本店员工")
         elif actor.role is Role.AREA_MANAGER:
-            if target.role is not Role.STORE_MANAGER or target.area_id != actor.area_id:
+            if target.role is not Role.STORE_MANAGER:
+                raise PermissionDenied("只能停用本片区店长")
+            # 店长账号只绑定门店，片区要通过门店反查，不能直接看 user.area_id。
+            if self._area_of_store(target.store_id) != actor.area_id:
                 raise PermissionDenied("只能停用本片区店长")
         else:
             raise PermissionDenied("当前角色不能停用账号")
         with UnitOfWork(self._db) as conn:
             ensure_active(conn, actor)
             UserRepository(conn).set_status(user_id, UserStatus.DISABLED)
+
+    def _area_of_store(self, store_id: str | None) -> str | None:
+        if not store_id:
+            return None
+        with UnitOfWork(self._db) as conn:
+            row = conn.execute("SELECT area_id FROM store WHERE id = ?", (store_id,)).fetchone()
+        return row["area_id"] if row else None
 
     def find_customer_by_phone(self, actor: Session, phone: str) -> User:
         """前台开单时按手机号找顾客。"""

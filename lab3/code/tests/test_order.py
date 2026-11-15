@@ -361,3 +361,34 @@ def test_modify_to_more_expensive_needs_no_approval(
     )
 
     assert modified.total_cents == 120_000
+
+
+def test_cancel_deadline_includes_18_00(
+    shop: dict, order_service: OrderService, clock: FakeClock
+) -> None:
+    """REQ-021：18:00 整点起即按截止后处理。"""
+    order = _order(shop, order_service, request_no="edge-1800")
+    clock.set(datetime(2026, 11, 20, 18, 0))
+
+    with pytest.raises(PermissionDenied):
+        order_service.cancel_order(shop["customer"], order.id, "整点取消")
+
+
+def test_modify_refund_at_18_00_needs_approval(
+    shop: dict,
+    wired_order_service: OrderService,
+    payment_service,
+    clock: FakeClock,
+) -> None:
+    order = _order(shop, wired_order_service, request_no="edge-modify")
+    payment_service.pay(payment_service.create_payment(shop["customer"], order.id).pay_no)
+    clock.set(datetime(2026, 11, 20, 18, 0))
+
+    with pytest.raises(ConflictError):
+        wired_order_service.modify_order(
+            shop["customer"],
+            order.id,
+            items=[RoomRequest(shop["room_type"].id, 1)],
+            check_in=CHECK_IN,
+            check_out=date(2026, 11, 21),
+        )
