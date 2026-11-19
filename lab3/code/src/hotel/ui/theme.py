@@ -221,6 +221,35 @@ def entry(parent: tk.Misc, variable, width: int = 16) -> ttk.Entry:
     return ttk.Entry(parent, textvariable=variable, width=width, style="App.TEntry")
 
 
+def scroll_area(parent: tk.Misc) -> tk.Frame:
+    """可滚动的卡片容器。内容放在返回的 frame 里。"""
+    outer = tk.Frame(parent, bg=BG)
+    outer.pack(fill="both", expand=True)
+    canvas = tk.Canvas(outer, bg=BG, highlightthickness=0, bd=0)
+    scrollbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+    inner = tk.Frame(canvas, bg=BG)
+    window = canvas.create_window((0, 0), window=inner, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+    canvas.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+
+    def resize(_event=None) -> None:
+        canvas.configure(scrollregion=canvas.bbox("all"))
+
+    def fit(event) -> None:
+        canvas.itemconfigure(window, width=event.width)
+
+    def wheel(event) -> None:
+        if canvas.winfo_exists():
+            canvas.yview_scroll(int(-event.delta / 120), "units")
+
+    inner.bind("<Configure>", resize)
+    canvas.bind("<Configure>", fit)
+    canvas.bind("<Enter>", lambda _event: canvas.bind_all("<MouseWheel>", wheel))
+    canvas.bind("<Leave>", lambda _event: canvas.unbind_all("<MouseWheel>"))
+    return inner
+
+
 def badge(parent: tk.Misc, text: str, tone: str = "accent") -> tk.Label:
     colors = {
         "accent": (ACCENT_SOFT, ACCENT),

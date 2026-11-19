@@ -65,6 +65,7 @@ class RoomTypeOverview:
     store_id: str
     store_name: str
     city: str
+    district: str
     bed_type: str
     max_guests: int
     total_rooms: int

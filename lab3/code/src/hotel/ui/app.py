@@ -50,7 +50,7 @@ def nav_items(role: Role) -> list[tuple[str, type]]:
 
     if role is Role.CUSTOMER:
         return [
-            ("房型查询", customer.QueryScreen),
+            ("找酒店", customer.QueryScreen),
             ("我的订单", customer.CustomerOrdersScreen),
             ("提交评价", customer_extra.ReviewScreen),
         ]
@@ -265,18 +265,25 @@ class App(tk.Tk):
 
 class LoginScreen(Screen):
     title = "登录"
-    subtitle = "使用手机号登录，系统按角色展示对应功能"
+    subtitle = "先选身份，再登录对应账号"
+
+    ROLE_ACCOUNTS = (
+        (Role.CUSTOMER, "顾客", "13800000001"),
+        (Role.FRONT_DESK, "前台", "13900000003"),
+        (Role.STORE_MANAGER, "店长", "13900000002"),
+        (Role.AREA_MANAGER, "片区负责人", "13900000001"),
+    )
 
     def build(self) -> None:
         holder = tk.Frame(self, bg=theme.BG)
-        holder.place(relx=0.5, rely=0.44, anchor="center")
+        holder.place(relx=0.5, rely=0.46, anchor="center")
 
         box = tk.Frame(
             holder, bg=theme.SURFACE, highlightbackground=theme.BORDER, highlightthickness=1
         )
         box.pack()
         inner = tk.Frame(box, bg=theme.SURFACE)
-        inner.pack(padx=44, pady=36)
+        inner.pack(padx=44, pady=32)
 
         tk.Label(
             inner,
@@ -287,15 +294,34 @@ class LoginScreen(Screen):
         ).pack(anchor="w")
         tk.Label(
             inner,
-            text="顾客、前台、店长与片区负责人共用同一入口",
+            text="四类角色共用同一入口，请先选择身份",
             bg=theme.SURFACE,
             fg=theme.MUTED,
             font=theme.FONT_SMALL,
-        ).pack(anchor="w", pady=(4, 22))
+        ).pack(anchor="w", pady=(4, 18))
 
-        self.phone = tk.StringVar(value="13800000001")
+        theme.field_label(inner, "登录身份").pack(anchor="w")
+        role_row = tk.Frame(inner, bg=theme.SURFACE)
+        role_row.pack(fill="x", pady=(6, 16))
+        self.role_var: Role = Role.CUSTOMER
+        self.role_buttons: dict[Role, tk.Button] = {}
+        for role, label, phone in self.ROLE_ACCOUNTS:
+            button = tk.Button(
+                role_row,
+                text=label,
+                bd=0,
+                relief="flat",
+                padx=12,
+                pady=7,
+                font=theme.FONT_BODY,
+                cursor="hand2",
+                command=lambda role=role, phone=phone: self._select_role(role, phone),
+            )
+            button.pack(side="left", padx=(0, 8))
+            self.role_buttons[role] = button
+
+        self.phone = tk.StringVar()
         self.password = tk.StringVar(value="secret1")
-
         theme.field_label(inner, "手机号").pack(anchor="w")
         theme.entry(inner, self.phone, width=30).pack(fill="x", pady=(4, 12))
         theme.field_label(inner, "密码").pack(anchor="w")
@@ -306,9 +332,29 @@ class LoginScreen(Screen):
         theme.primary(inner, "登录", self.login).pack(fill="x")
         theme.ghost(inner, "注册顾客账号", self.open_register).pack(fill="x", pady=(8, 0))
 
+        self._select_role(Role.CUSTOMER, "13800000001")
+
+    def _select_role(self, role: Role, phone: str) -> None:
+        self.role_var = role
+        self.phone.set(phone)
+        for item_role, button in self.role_buttons.items():
+            active = item_role is role
+            button.configure(
+                bg=theme.ACCENT if active else theme.SURFACE_ALT,
+                fg="#FFFFFF" if active else theme.TEXT,
+                activebackground=theme.ACCENT if active else theme.BORDER,
+                activeforeground="#FFFFFF" if active else theme.TEXT,
+            )
+
     @guarded
     def login(self) -> None:
         session = self.services.account.login(self.phone.get(), self.password.get())
+        if session.role is not self.role_var:
+            messagebox.showwarning(
+                "身份不匹配",
+                f"这个账号是「{ROLE_LABEL[session.role]}」，请选择对应身份登录",
+            )
+            return
         self.app.after_login(session)
 
     def open_register(self) -> None:
