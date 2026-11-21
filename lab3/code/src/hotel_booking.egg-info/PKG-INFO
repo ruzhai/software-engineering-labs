@@ -1,9 +1,0 @@
-Metadata-Version: 2.4
-Name: hotel-booking
-Version: 0.1.0
-Summary: 软件工程实验三：酒店预订管理系统
-Requires-Python: >=3.12
-Provides-Extra: dev
-Requires-Dist: pytest>=8; extra == "dev"
-Requires-Dist: pylint>=3; extra == "dev"
-Requires-Dist: black>=24; extra == "dev"

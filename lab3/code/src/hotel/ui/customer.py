@@ -220,9 +220,9 @@ class ResultScreen(Screen):
     def build(self) -> None:
         params = self.app.search_params or {}
         check_in = params.get("check_in")
-        summary = "{} · {} 至 {} · {} 位".format(
-            params.get("city", ""), check_in, params.get("check_out", ""), params.get("guests", "")
-        )
+        city = params.get("city", "")
+        check_out = params.get("check_out", "")
+        summary = f"{city} · {check_in} 至 {check_out} · {params.get('guests', '')} 位"
         tk.Label(self, text=summary, bg=theme.BG, fg=theme.MUTED, font=theme.FONT_SMALL).pack(
             anchor="w", pady=(0, 10)
         )

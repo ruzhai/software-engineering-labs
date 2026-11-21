@@ -1,5 +1,0 @@
-
-[dev]
-pytest>=8
-pylint>=3
-black>=24

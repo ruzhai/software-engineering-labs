@@ -1,3 +1,0 @@
-[console_scripts]
-hotel-seed = hotel.seed:main
-hotel-ui = hotel.ui.app:main
